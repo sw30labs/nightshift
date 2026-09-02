@@ -1,7 +1,4 @@
-<img src="docs/aineko.svg" alt="Aineko" width="48" align="right"/>
-
-# Nightshift
-
+# <img src="docs/aineko.svg" alt="Aineko" width="40" height="40"/> Nightshift
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org)
 [![LangGraph](https://img.shields.io/badge/LangGraph-0.2-1C3C3C)](https://github.com/langchain-ai/langgraph)

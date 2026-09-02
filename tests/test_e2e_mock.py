@@ -22,7 +22,6 @@ def test_e2e_mock_remaining_zero(fixture_repo, mock_settings):
     assert current_branch(fixture_repo).startswith("night/")
     assert rev_parse(fixture_repo, "main") == main_sha
     assert (fixture_repo / ".nightshift" / "brief.json").is_file()
-    assert (fixture_repo / "VERSION").read_text(encoding="utf-8").strip() == "1.0.0"
     text = (fixture_repo / "widget.py").read_text(encoding="utf-8")
     assert "def greet" in text
     assert "return a + b" in text

@@ -13,7 +13,7 @@ class FrozenBriefError(RuntimeError):
 
 BRIEF_SIZE_MIN = 2
 BRIEF_SIZE_MAX = 5
-BRIEF_SIZE_DEFAULT = 3
+BRIEF_SIZE_DEFAULT = 2
 
 
 def clamp_brief_size(n: int) -> int:

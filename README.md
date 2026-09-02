@@ -9,7 +9,7 @@ Pick a git project. The objective is **areas of improvement**: Nightshift finds 
 
 Electricity is cheaper at night. The local supercomputers are already paid for: two NVIDIA Sparks and a 512 GB Mac Studio. Leave them dark and that capex earns nothing until morning. Nightshift is continuous improvement on the overnight tariff — same machines, cheaper electrons, a frozen brief, a branch you review when you wake up.
 
-Minute 0, the critic walks the tree, tests, README, and recent log, then the ledger of nights that already ran. It freezes **2–5 checkable upgrades** (deck **JOBS**, default **3**). Not “cleaner architecture.” Each item has a host command that can pass or fail. The writer cannot grow the brief. Last night’s attempted checks get **voided**, not retried.
+Minute 0, the critic walks the tree, tests, README, and recent log, then the ledger of nights that already ran. It freezes **2–5 checkable upgrades** (deck **JOBS**, default **2**). Not “cleaner architecture.” Each item has a host command that can pass or fail. The writer cannot grow the brief. Last night’s attempted checks get **voided**, not retried.
 
 Then a Ralph loop until remaining is 0, the clock (default 06:00 local), or `max_turns`: critic jobs the next open item, Spark DS4 writes, **host pytest is truth**, critic reverts gold-plating. Morning you get:
 
@@ -54,7 +54,7 @@ export NIGHTSHIFT_CRITIC_MODEL=GLM-5.3-Flash-MLX-8bit
 export NIGHTSHIFT_API_KEY=test           # oMLX; Spark usually ignores Authorization
 export NIGHTSHIFT_ROOTS=$HOME/REPOS      # default
 export NIGHTSHIFT_HALT_AT=06:00          # local clock
-export NIGHTSHIFT_BRIEF_SIZE=3           # 2-5; deck JOBS knob
+export NIGHTSHIFT_BRIEF_SIZE=2           # 2-5; deck JOBS knob
 ```
 
 The cloud CI VM has neither oMLX nor the Sparks. Tests use `--mock` / `NIGHTSHIFT_MOCK=1`. Do not require live GPUs in CI.

@@ -56,7 +56,7 @@ def test_propose_brief_retries_then_succeeds(fixture_repo):
             )
 
     client = Flaky()
-    upgrades = Critic(client, fixture_repo).propose_brief("snapshot")
+    upgrades = Critic(client, fixture_repo).propose_brief("snapshot", size=3)
     assert client.n == 3
     assert len(upgrades) == 3
     assert upgrades[0].title == "one"
@@ -93,5 +93,5 @@ def test_propose_brief_does_not_retry_a_fourth_upgrade(fixture_repo):
 
     client = Four()
     with pytest.raises(FrozenBriefError, match="exactly 3"):
-        Critic(client, fixture_repo).propose_brief("snapshot")
+        Critic(client, fixture_repo).propose_brief("snapshot", size=3)
     assert client.n == 1

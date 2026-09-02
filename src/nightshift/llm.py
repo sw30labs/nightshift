@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from .models import Brief, FrozenBriefError, SafetyError, Upgrade, WriterResult
+from .models import BRIEF_SIZE_DEFAULT, Brief, FrozenBriefError, SafetyError, Upgrade, WriterResult
 from .safety import assert_inside_repo, is_meta_path
 
 MAX_FULL_FILE_CHARS = 8_000
@@ -177,7 +177,7 @@ def compose_widget_py(repo: Path, *, fix_add: bool = False, add_greet: bool = Fa
     return add_fn + greet_fn
 
 
-def mock_upgrades_from_repo(repo: Path, size: int = 3) -> list[Upgrade]:
+def mock_upgrades_from_repo(repo: Path, size: int = BRIEF_SIZE_DEFAULT) -> list[Upgrade]:
     py = sys.executable
     found: list[tuple[str, str]] = []
     tests_dir = repo / "tests"
@@ -481,7 +481,7 @@ class Critic:
         self.client = client
         self.repo = repo
 
-    def propose_brief(self, snapshot: str, size: int = 3) -> list[Upgrade]:
+    def propose_brief(self, snapshot: str, size: int = BRIEF_SIZE_DEFAULT) -> list[Upgrade]:
         size = int(size)
         if getattr(self.client, "mock", False):
             return mock_upgrades_from_repo(self.repo, size=size)

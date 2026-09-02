@@ -44,7 +44,7 @@ def test_from_proposed_rejects_fourth():
             {"title": "four", "check_command": "true", "paths": ["d"]},
         ]
     }
-    with pytest.raises(FrozenBriefError, match="exactly 3"):
+    with pytest.raises(FrozenBriefError, match="exactly 2"):
         Brief.from_proposed(data)
 
 
@@ -67,8 +67,8 @@ def test_from_proposed_size_mismatch():
             {"title": "two", "check_command": "true", "paths": ["b"]},
         ]
     }
-    with pytest.raises(FrozenBriefError, match="exactly 3"):
-        Brief.from_proposed(two)
+    brief = Brief.from_proposed(two)
+    assert len(brief.upgrades) == 2
     three = {
         "upgrades": [
             {"title": "one", "check_command": "true", "paths": ["a"]},

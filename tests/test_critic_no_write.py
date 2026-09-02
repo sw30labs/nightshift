@@ -28,6 +28,6 @@ def test_minute_zero_does_not_write_project_body(fixture_repo, mock_settings):
     assert (fixture_repo / ".nightshift" / "brief.json").is_file()
     assert current_branch(fixture_repo).startswith("night/")
     assert rev_parse(fixture_repo, "main") == main_sha
-    assert report.remaining_count == 3
+    assert report.remaining_count == 2
     critic = Critic(MockChatClient("critic", fixture_repo), fixture_repo)
     assert not hasattr(critic, "write_file")

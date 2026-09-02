@@ -78,7 +78,7 @@ class Settings:
         default_factory=lambda: int(os.environ.get("NIGHTSHIFT_CRITIC_TIMEOUT", "180"))
     )
     brief_size: int = field(
-        default_factory=lambda: int(os.environ.get("NIGHTSHIFT_BRIEF_SIZE", "3"))
+        default_factory=lambda: int(os.environ.get("NIGHTSHIFT_BRIEF_SIZE", "2"))
     )
 
     def state_dir(self) -> Path:

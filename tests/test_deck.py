@@ -58,7 +58,7 @@ def test_deck_lists_and_runs_mock(tmp_path, ns_home):
         assert "id=\"aineko\"" in html
         cfg = _get(base + "/api/config")
         assert cfg["mock"] is True
-        assert cfg["brief_size"] == 3
+        assert cfg["brief_size"] == 2
         assert cfg["brief_size_min"] == 2
         assert cfg["brief_size_max"] == 5
         listed = _get(base + "/api/repos")

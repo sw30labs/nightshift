@@ -45,7 +45,7 @@ def parse_json_object(text: str) -> dict[str, Any]:
 
 
 class OpenAICompatClient:
-    """POST {base}/chat/completions. Dummy keys (`dummy` / `EMPTY`) are fine."""
+    """POST {base}/chat/completions. oMLX expects Bearer test; Spark vLLM ignores it."""
 
     mock = False
 
@@ -54,12 +54,12 @@ class OpenAICompatClient:
         base_url: str,
         model: str,
         *,
-        api_key: str = "dummy",
+        api_key: str = "test",
         timeout: float = 180,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
-        self.api_key = api_key or "dummy"
+        self.api_key = api_key or "test"
         self.timeout = timeout
 
     def chat(

@@ -3,8 +3,9 @@
 # command deck.
 #
 # Usage:
-#   ./setup_and_run.sh                 # venv + tests + mock demo deck → :43171
+#   ./setup_and_run.sh                 # venv + tests + mock deck over ~/REPOS → :43171
 #   ./setup_and_run.sh --live          # same, then the deck against oMLX + DS4
+#   ./setup_and_run.sh --demo          # mock deck with the seeded widget repo only
 #   ./setup_and_run.sh --setup-only    # venv + deps + tests, no deck
 #   ./setup_and_run.sh --no-tests      # skip pytest
 #   ./setup_and_run.sh --no-browser    # accepted; the deck does not open a tab
@@ -18,9 +19,11 @@
 #   NIGHTSHIFT_PYTHON       interpreter used to create the venv (>= 3.11)
 #   NIGHTSHIFT_PORT         command deck port (default 43171; not LoopScope :7788)
 #   NIGHTSHIFT_NO_BROWSER=1 same as --no-browser
+#   NIGHTSHIFT_ROOTS        git roots to scan (default $HOME/REPOS)
 #
-# Default is mock + a seeded widget repo so the list is not empty. --live
-# expects Mac oMLX and spark-serve ds4; it fills the two-brain URLs if unset.
+# Default is mock against real git projects under NIGHTSHIFT_ROOTS. --demo
+# is opt-in (seeded widget only). --live expects Mac oMLX and spark-serve ds4;
+# it fills the two-brain URLs if unset.
 # LoopScope is best-effort. If pip cannot reach GitHub, observe degrades.
 set -euo pipefail
 
@@ -28,6 +31,7 @@ cd "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
 CMD=run
 LIVE=0
+DEMO=0
 SETUP_ONLY=0
 RUN_TESTS=1
 OPEN_BROWSER=1
@@ -55,6 +59,7 @@ esac
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --live) LIVE=1 ;;
+    --demo) DEMO=1 ;;
     --port)
       require_value "$@"
       PORT="$2"
@@ -255,6 +260,7 @@ if [ "$SETUP_ONLY" -eq 1 ]; then
 fi
 
 export NIGHTSHIFT_PORT="$PORT"
+export NIGHTSHIFT_API_KEY="${NIGHTSHIFT_API_KEY:-test}"
 if [ "$OPEN_BROWSER" -eq 0 ]; then
   export NIGHTSHIFT_NO_BROWSER=1
 fi
@@ -277,9 +283,14 @@ echo "    headless? tunnel with:  ssh -L $PORT:127.0.0.1:$PORT <host>"
 # --no-browser is accepted for script parity; nightshift serve does not open a tab.
 
 if [ "$LIVE" -eq 1 ]; then
-  echo "==> live command deck (oMLX + spark-serve ds4)"
+  echo "==> live command deck (oMLX + spark-serve ds4, roots ${NIGHTSHIFT_ROOTS:-$HOME/REPOS})"
   exec python -m nightshift serve --host 127.0.0.1 --port "$PORT"
 fi
 
-echo "==> mock demo command deck"
-exec python -m nightshift serve --mock --demo --host 127.0.0.1 --port "$PORT"
+if [ "$DEMO" -eq 1 ]; then
+  echo "==> mock demo command deck (seeded widget only)"
+  exec python -m nightshift serve --mock --demo --host 127.0.0.1 --port "$PORT"
+fi
+
+echo "==> mock command deck (roots ${NIGHTSHIFT_ROOTS:-$HOME/REPOS})"
+exec python -m nightshift serve --mock --host 127.0.0.1 --port "$PORT"

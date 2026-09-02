@@ -38,7 +38,7 @@ class Settings:
         )
     )
     api_key: str = field(
-        default_factory=lambda: os.environ.get("NIGHTSHIFT_API_KEY", "dummy")
+        default_factory=lambda: os.environ.get("NIGHTSHIFT_API_KEY", "test")
     )
     roots: list[Path] = field(
         default_factory=lambda: _split_roots(os.environ.get("NIGHTSHIFT_ROOTS"))

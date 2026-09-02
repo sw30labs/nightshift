@@ -9,7 +9,7 @@ A local overnight coding agent. Pick an existing git project, press **Run**, go 
 
 This is not a chatbot. Not two models chatting. The product is a branch you can `git diff`.
 
-Personal-capacity OSS. Origin is the source of truth. Author: Nicolas Cravino / sw30labs.
+Personal-capacity OSS. GitHub is the remote. Morning review is VS Code, not Cursor. Author: Nicolas Cravino / sw30labs.
 
 ## The two brains
 
@@ -20,14 +20,14 @@ Different physics. Do not point both at the same server.
 | **Writer** | Spark DS4 only | `http://192.168.86.44:8000/v1` | `deepseek-v4-flash` | edit/create files inside the target repo. No network from the writer. |
 | **Critic** | Mac oMLX only | `http://127.0.0.1:8000/v1` | `GLM-5.3-Flash-MLX-8bit` | inspect, score, slash, revert, halt. **Never writes the project body.** |
 
-OpenAI-compatible `POST /chat/completions`. Dummy API keys (`dummy` / `EMPTY`) are fine; these endpoints often do not auth.
+OpenAI-compatible `POST /chat/completions`. Mac oMLX requires `Authorization: Bearer test`. Spark DS4 usually ignores the header.
 
 ```bash
 export NIGHTSHIFT_WRITER_BASE_URL=http://192.168.86.44:8000/v1
 export NIGHTSHIFT_WRITER_MODEL=deepseek-v4-flash
 export NIGHTSHIFT_CRITIC_BASE_URL=http://127.0.0.1:8000/v1
 export NIGHTSHIFT_CRITIC_MODEL=GLM-5.3-Flash-MLX-8bit
-export NIGHTSHIFT_API_KEY=dummy          # or EMPTY
+export NIGHTSHIFT_API_KEY=test           # oMLX; Spark usually ignores Authorization
 export NIGHTSHIFT_ROOTS=$HOME/REPOS      # default
 export NIGHTSHIFT_HALT_AT=06:00          # local clock
 ```
@@ -39,8 +39,9 @@ The cloud CI VM has neither oMLX nor the Sparks. Tests use `--mock` / `NIGHTSHIF
 From a source checkout, same shape as LoopScope:
 
 ```bash
-./setup_and_run.sh          # venv + tests + mock demo deck
+./setup_and_run.sh          # venv + tests + mock deck over ~/REPOS
 ./setup_and_run.sh --live   # oMLX + spark-serve ds4
+./setup_and_run.sh --demo   # seeded widget only
 ```
 
 `--setup-only` stops after deps and tests. `--live` fills the two-brain URLs if they are unset. The deck binds `127.0.0.1:43171` by default (`NIGHTSHIFT_PORT` / `--port`); LoopScope stays on `:7788`.

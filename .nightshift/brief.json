@@ -1,0 +1,38 @@
+{
+  "frozen": true,
+  "created_at": "2026-09-02T21:09:14.252319+00:00",
+  "repo": "/Users/spider/REPOS/nightshift",
+  "branch": "night/2026-09-02-1701",
+  "remaining_count": 2,
+  "void_count": 0,
+  "upgrades": [
+    {
+      "id": 1,
+      "title": "run_check must survive malformed check commands: an unbalanced quote makes shlex.split raise ValueError outside the try/except, killing the whole night with halt_reason=error; catch it and return a failing CheckResult (ok=False, exit_code=-1) instead",
+      "check_command": "python -m pytest tests/test_host_check.py -q",
+      "paths": [
+        "src/nightshift/host.py",
+        "tests/test_host_check.py"
+      ],
+      "done": false,
+      "note": "",
+      "void": false,
+      "void_reason": "",
+      "void_by": 0
+    },
+    {
+      "id": 2,
+      "title": "Shell-form pytest checks bypass the documented addopts strip: needs_shell commands like 'pytest tests/test_ok.py -q && echo ok' run under /bin/sh without -o addopts=, so a pytest.ini --cov still kills the check; insert -o addopts= after each pytest invocation in the shell branch, matching the README safety contract",
+      "check_command": "python -m pytest tests/test_host_pytest_addopts.py -q",
+      "paths": [
+        "src/nightshift/host.py",
+        "tests/test_host_pytest_addopts.py"
+      ],
+      "done": false,
+      "note": "",
+      "void": false,
+      "void_reason": "",
+      "void_by": 0
+    }
+  ]
+}

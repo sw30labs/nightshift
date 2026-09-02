@@ -151,7 +151,8 @@ The mock provider implements the same chat shape as the live HTTP clients. Unit 
 - Writer tools: edit/create inside the target only. Critic has no write tool.
 - Snapshot is gitignore-aware and never reads `.env`, keys, or credential files.
 - A blocked secret write is skipped and recorded, not a dead night. Secret rotation is a human job.
-- Host checks run in the target repo with a timeout.
+- Writer HTTP timeout defaults to 600s; a timeout is recorded and retried next turn, not a dead night.
+- Host checks run in the target repo. Pytest CI addopts (`--cov`, …) are stripped so a missing pytest-cov cannot kill the check.
 - No `git push` unless `--push`.
 
 ## Tests

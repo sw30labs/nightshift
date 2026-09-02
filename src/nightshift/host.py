@@ -11,19 +11,37 @@ from pathlib import Path
 from .models import CheckResult, Upgrade
 
 
-def argv_for(command: str) -> list[str]:
+def interpreter_for(repo: Path | None) -> str:
+    if repo is not None:
+        for rel in (".venv/bin/python", "venv/bin/python"):
+            cand = repo / rel
+            if cand.is_file():
+                return str(cand)
+    return sys.executable
+
+
+def _is_python_exe(exe: str) -> bool:
+    name = Path(exe).name.lower()
+    return name in {"python", "python3", "py"} or name.startswith("python")
+
+
+def argv_for(command: str, repo: Path | None = None) -> list[str]:
     parts = shlex.split(command, posix=True)
     if not parts:
         raise ValueError("empty check command")
-    if parts[0] in {"python", "python3", "py"}:
-        parts[0] = sys.executable
+    if _is_python_exe(parts[0]):
+        parts[0] = interpreter_for(repo)
+    if "pytest" in parts and "-o" not in parts:
+        # Target pytest.ini often injects --cov. Nightshift's venv may not have
+        # pytest-cov, and a single-file check should not inherit CI addopts.
+        parts.extend(["-o", "addopts="])
     return parts
 
 
 def run_check(repo: Path, upgrade: Upgrade, timeout: int) -> CheckResult:
-    argv = argv_for(upgrade.check_command)
+    argv = argv_for(upgrade.check_command, repo)
     env = os.environ.copy()
-    env.setdefault("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
+    env.pop("PYTEST_DISABLE_PLUGIN_AUTOLOAD", None)
     try:
         proc = subprocess.run(
             argv,

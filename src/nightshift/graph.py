@@ -210,7 +210,18 @@ class LoopNodes:
         brief = self._brief(state)
         job = str(state.get("job") or "")
         snapshot = read_snapshot(self.ctx.repo)
-        result = self.ctx.writer.apply_job(job, brief, snapshot)
+        try:
+            result = self.ctx.writer.apply_job(job, brief, snapshot)
+        except TimeoutError as exc:
+            note = f"writer timed out ({exc}); will retry"
+            if note not in self.ctx.refused:
+                self.ctx.refused.append(note)
+            return {
+                "brain": "writer",
+                "written": [],
+                "refused": list(self.ctx.refused),
+                "remaining_count": brief.remaining_count,
+            }
         for note in result.refused:
             if note not in self.ctx.refused:
                 self.ctx.refused.append(note)

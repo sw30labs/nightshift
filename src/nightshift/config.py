@@ -71,8 +71,12 @@ class Settings:
     now_fn: Callable[[], datetime] = datetime.now
     halt_deadline: datetime | None = None
     stall_after: int = 8
-    writer_timeout: int = 180
-    critic_timeout: int = 90
+    writer_timeout: int = field(
+        default_factory=lambda: int(os.environ.get("NIGHTSHIFT_WRITER_TIMEOUT", "600"))
+    )
+    critic_timeout: int = field(
+        default_factory=lambda: int(os.environ.get("NIGHTSHIFT_CRITIC_TIMEOUT", "180"))
+    )
 
     def state_dir(self) -> Path:
         self.home.mkdir(parents=True, exist_ok=True)

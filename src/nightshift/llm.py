@@ -55,7 +55,7 @@ class OpenAICompatClient:
         model: str,
         *,
         api_key: str = "test",
-        timeout: float = 180,
+        timeout: float = 600,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -311,12 +311,20 @@ class Writer:
             f"Current job:\n{job}\n\n"
             f"Repo snapshot (truncated):\n{snapshot[:120_000]}\n"
         )
-        raw = self.client.chat(
-            [
-                {"role": "system", "content": WRITER_SYSTEM},
-                {"role": "user", "content": user},
-            ]
-        )
+        try:
+            raw = self.client.chat(
+                [
+                    {"role": "system", "content": WRITER_SYSTEM},
+                    {"role": "user", "content": user},
+                ]
+            )
+        except (TimeoutError, urllib.error.URLError) as exc:
+            return WriterResult(
+                written=[],
+                message="timeout",
+                raw="",
+                refused=[f"writer timed out ({exc}); will retry"],
+            )
         payload = parse_json_object(raw)
         payload.pop("upgrades", None)
         payload.pop("extra_upgrades", None)

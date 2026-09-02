@@ -55,7 +55,16 @@ def run_check(repo: Path, upgrade: Upgrade, timeout: int) -> CheckResult:
             rewritten = rewritten.replace(f"{token} -c", f"{py} -c")
         popen: str | list[str] = ["/bin/sh", "-c", rewritten]
     else:
-        popen = argv_for(command, repo)
+        try:
+            popen = argv_for(command, repo)
+        except ValueError as exc:
+            return CheckResult(
+                upgrade_id=upgrade.id,
+                command=upgrade.check_command,
+                ok=False,
+                exit_code=-1,
+                output=str(exc),
+            )
     try:
         proc = subprocess.run(
             popen,

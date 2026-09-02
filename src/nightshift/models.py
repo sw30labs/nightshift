@@ -48,6 +48,9 @@ class Upgrade:
     paths: list[str] = field(default_factory=list)
     done: bool = False
     note: str = ""
+    void: bool = False
+    void_reason: str = ""
+    void_by: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -61,6 +64,9 @@ class Upgrade:
             paths=[str(p) for p in data.get("paths") or []],
             done=bool(data.get("done", False)),
             note=str(data.get("note") or ""),
+            void=bool(data.get("void", False)),
+            void_reason=str(data.get("void_reason") or ""),
+            void_by=int(data.get("void_by") or 0),
         )
 
 
@@ -79,10 +85,14 @@ class Brief:
 
     @property
     def remaining_count(self) -> int:
-        return sum(1 for u in self.upgrades if not u.done)
+        return sum(1 for u in self.upgrades if not u.done and not u.void)
 
     def remaining(self) -> list[Upgrade]:
-        return [u for u in self.upgrades if not u.done]
+        return [u for u in self.upgrades if not u.done and not u.void]
+
+    @property
+    def void_count(self) -> int:
+        return sum(1 for u in self.upgrades if u.void)
 
     def allowed_paths(self) -> set[str]:
         out: set[str] = set()
@@ -93,6 +103,21 @@ class Brief:
 
     def add_upgrade(self, upgrade: Upgrade) -> None:
         raise FrozenBriefError("brief is frozen; cannot add another upgrade")
+
+    def void_upgrade(self, id: int, reason: str, by: int = 0) -> None:
+        """Mark an upgrade void. Cannot un-void. Cannot void if already done."""
+        for u in self.upgrades:
+            if u.id != id:
+                continue
+            if u.void:
+                raise FrozenBriefError(f"upgrade {id} is already void; cannot un-void")
+            if u.done:
+                raise FrozenBriefError(f"upgrade {id} is already done; cannot void")
+            u.void = True
+            u.void_reason = str(reason or "")
+            u.void_by = int(by or 0)
+            return
+        raise FrozenBriefError(f"upgrade {id} not found")
 
     def mark_done(self, ids: Iterable[int]) -> None:
         want = set(ids)
@@ -113,6 +138,7 @@ class Brief:
             "repo": self.repo,
             "branch": self.branch,
             "remaining_count": self.remaining_count,
+            "void_count": self.void_count,
             "upgrades": [u.to_dict() for u in self.upgrades],
         }
 
@@ -137,6 +163,9 @@ class Brief:
                     paths=list(u.paths),
                     done=False,
                     note=u.note,
+                    void=False,
+                    void_reason="",
+                    void_by=0,
                 )
             )
         return cls(

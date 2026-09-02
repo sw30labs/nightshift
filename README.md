@@ -114,6 +114,8 @@ Morning artifacts on the night branch:
 - `.nightshift/summary.md` (what changed, what was refused, remaining if the clock halted)
 - small real commits as the night proceeds
 
+Ledger of prior nights lives at `.nightshift/ledger.json`; freeze voids `duplicate_of_history`. `events.jsonl` is rotated into `.nightshift/history/` before truncate.
+
 ## LoopScope
 
 One hook. Nightshift does not fork LoopScope and does not wrap graph nodes.

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import shutil
 import threading
 import webbrowser
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -73,6 +75,29 @@ def _record(event: dict[str, Any]) -> None:
                 fh.write(json.dumps(event) + "\n")
 
 
+def rotate_events_jsonl(jsonl_path: Path) -> Path | None:
+    """Copy events.jsonl (and brief/summary if present) into history/{UTC stamp}/ before wipe."""
+    path = Path(jsonl_path)
+    if not path.is_file():
+        return None
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return None
+    if size <= 0:
+        return None
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    hist_dir = path.parent / "history" / stamp
+    hist_dir.mkdir(parents=True, exist_ok=True)
+    dest = hist_dir / "events.jsonl"
+    shutil.copy2(path, dest)
+    for name in ("brief.json", "summary.md"):
+        src = path.parent / name
+        if src.is_file():
+            shutil.copy2(src, hist_dir / name)
+    return dest
+
+
 def start(
     *,
     open_browser: bool = False,
@@ -86,6 +111,7 @@ def start(
     if jsonl:
         _jsonl_path = Path(jsonl)
         _jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+        rotate_events_jsonl(_jsonl_path)
         _jsonl_path.write_text("", encoding="utf-8")
     ls = _try_loopscope()
     if ls is not None:

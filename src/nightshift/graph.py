@@ -137,7 +137,15 @@ def read_snapshot(repo: Path, max_bytes: int = 350_000) -> str:
         block = f"## file {rel}\n{text}"
         chunks.append(block)
         used += len(block)
-    return "\n\n".join(chunks)
+    snapshot = "\n\n".join(chunks)
+    ledger_path = repo / ".nightshift" / "ledger.json"
+    if ledger_path.is_file():
+        from .ledger import ledger_snapshot_block, load_ledger
+
+        block = ledger_snapshot_block(load_ledger(repo))
+        if block.strip():
+            snapshot = snapshot + "\n\n" + block
+    return snapshot
 
 
 def path_allowed(rel: str, allowed: set[str]) -> bool:
@@ -238,6 +246,8 @@ class LoopNodes:
         brief = self._brief(state)
         results: list[CheckResult] = []
         for upgrade in brief.upgrades:
+            if upgrade.void:
+                continue
             results.append(
                 run_check(self.ctx.repo, upgrade, self.ctx.settings.check_timeout)
             )
@@ -274,8 +284,17 @@ class LoopNodes:
         for row in results_raw:
             by_id[int(row["upgrade_id"])] = row
         # Host output is truth. Critic opinion cannot mark a failing check done.
+        # Void stays void. A passing-then-failing check does not un-done.
         for upgrade in brief.upgrades:
+            if upgrade.void:
+                continue
             row = by_id.get(upgrade.id)
+            if upgrade.done:
+                if row and not row.get("ok"):
+                    note = f"upgrade {upgrade.id} check failed after done; leaving done"
+                    if note not in self.ctx.refused:
+                        self.ctx.refused.append(note)
+                continue
             upgrade.done = bool(row and row.get("ok"))
         opinion = self.ctx.critic.opinion(
             brief,
@@ -358,10 +377,11 @@ def apply_host_truth(brief: Brief, results: list[CheckResult]) -> None:
     """Decrement only what the host actually passed. Used by unit tests."""
     by_id = {r.upgrade_id: r for r in results}
     for upgrade in brief.upgrades:
+        if upgrade.void:
+            continue
         row = by_id.get(upgrade.id)
-        upgrade.done = bool(row and row.ok)
-    # A critic saying "passed" cannot override a failing host check.
-    for upgrade in brief.upgrades:
-        row = by_id.get(upgrade.id)
-        if row and not row.ok:
-            upgrade.done = False
+        if upgrade.done:
+            # Regression: do not un-done.
+            continue
+        if not upgrade.done and not upgrade.void:
+            upgrade.done = bool(row and row.ok)

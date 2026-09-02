@@ -26,6 +26,12 @@ from .graph import (
     read_snapshot,
     run_cycle,
 )
+from .ledger import (
+    is_history_duplicate,
+    load_ledger,
+    merge_night_into_ledger,
+    save_ledger,
+)
 from .llm import Critic, MockChatClient, OpenAICompatClient, Writer, persist_meta
 from .models import Brief
 from .observe import attach, finish, log, metric, ralph_loop, start as observe_start
@@ -83,10 +89,26 @@ def write_summary(ctx: NightContext, brief: Brief, halt_reason: str) -> Path:
         "",
     ]
     for upgrade in brief.upgrades:
-        mark = "done" if upgrade.done else "open"
+        if upgrade.void:
+            mark = "void"
+        elif upgrade.done:
+            mark = "done"
+        else:
+            mark = "open"
         body.append(f"- **#{upgrade.id} [{mark}]** {upgrade.title}")
         body.append(f"  - check: `{upgrade.check_command}`")
         body.append(f"  - paths: {', '.join(upgrade.paths) or '(none)'}")
+    body.append("")
+    body.append("## Voided / skipped-as-duplicate")
+    body.append("")
+    voided = [u for u in brief.upgrades if u.void]
+    if voided:
+        for upgrade in voided:
+            reason = upgrade.void_reason or "void"
+            body.append(f"- **#{upgrade.id} [{reason}]** {upgrade.title}")
+            body.append(f"  - check: `{upgrade.check_command}`")
+    else:
+        body.append("- none")
     body.append("")
     body.append("## What changed")
     body.append("")
@@ -132,6 +154,10 @@ def minute_zero(ctx: NightContext) -> NightState:
         repo=str(ctx.repo),
         branch=branch,
     )
+    ledger = load_ledger(ctx.repo)
+    for upgrade in brief.upgrades:
+        if is_history_duplicate(upgrade, ledger):
+            brief.void_upgrade(upgrade.id, "duplicate_of_history")
     persist_meta(
         ctx.repo,
         ".nightshift/brief.json",
@@ -287,6 +313,13 @@ def run_night(repo: Path, settings: Settings, *, explicit: bool = True) -> Night
             halt_reason = "max_turns"
     brief = Brief.from_dict(state["brief"])
     summary_path = write_summary(ctx, brief, halt_reason)
+    turn = int(state.get("turn") or 0)
+    turns_by_id = {u.id: turn for u in brief.upgrades}
+    ledger = merge_night_into_ledger(
+        load_ledger(target), brief, branch, turns_by_id=turns_by_id
+    )
+    save_ledger(target, ledger)
+    commit_paths(target, "nightshift: update ledger", [".nightshift/ledger.json"])
     summary_text = summary_path.read_text(encoding="utf-8")
     if settings.push:
         push_branch(target, branch)

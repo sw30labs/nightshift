@@ -9,5 +9,6 @@ build/
 .coverage
 htmlcov/
 .nightshift/
+.nightshift/history/
 *.jsonl
 .DS_Store

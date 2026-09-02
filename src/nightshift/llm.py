@@ -331,7 +331,8 @@ CRITIC_BRIEF_SYSTEM = critic_brief_system(3)
 
 
 CRITIC_JOB_SYSTEM = """You are the Nightshift critic. Write one line: the next remaining brief item as a job for the writer.
-Return JSON: {"upgrade_id": 1, "job": "one line"}
+Write the job for the single upgrade in the user message only. Do not pick another id.
+Return JSON: {"upgrade_id": <that id>, "job": "one line"}
 No file writes. Never tell the writer to edit .env, keys, tokens, or credentials.
 """
 
@@ -503,19 +504,23 @@ class Critic:
             )
         raw = self.client.chat(
             [
-                {"role": "system", "content": CRITIC_JOB_SYSTEM},
+                {
+                    "role": "system",
+                    "content": (
+                        CRITIC_JOB_SYSTEM
+                        + f"\nWrite the job for upgrade_id {target.id} only."
+                    ),
+                },
                 {
                     "role": "user",
-                    "content": json.dumps(
-                        {"remaining": [u.to_dict() for u in remaining]}, indent=2
-                    ),
+                    "content": json.dumps({"upgrade": target.to_dict()}, indent=2),
                 },
             ]
         )
         data = parse_json_object(raw)
-        uid = int(data.get("upgrade_id") or target.id)
-        job = str(data.get("job") or target.title)
-        return uid, job
+        job = str(data.get("job") or "").strip() or target.title
+        # Ignore critic upgrade_id; lock to remaining()[0] (void already excluded).
+        return target.id, job
 
     def opinion(self, brief: Brief, diff: str, logs: str) -> dict[str, Any]:
         if getattr(self.client, "mock", False):

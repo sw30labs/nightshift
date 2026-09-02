@@ -114,7 +114,8 @@ def commit_paths(repo: Path, message: str, paths: list[str] | None = None) -> st
         existing = [p for p in paths if p]
         if not existing:
             return None
-        git(repo, "add", "--", *existing)
+        # -f: .nightshift/ is often gitignored; freeze/summary still must land
+        git(repo, "add", "-f", "--", *existing)
     else:
         git(repo, "add", "-A", "--", ".")
     staged = git(repo, "diff", "--cached", "--name-only").stdout.strip()

@@ -9,7 +9,9 @@ A local overnight coding agent. Pick an existing git project, press **Run**, go 
 
 This is not a chatbot. Not two models chatting. The product is a branch you can `git diff`.
 
-![Nightshift command deck and LoopScope during a live overnight run](docs/command-deck.png)
+![Nightshift command deck](docs/command-deck.png)
+
+![Nightshift command deck and LoopScope during a live overnight run](docs/deck-loopscope.png)
 
 Personal-capacity OSS. GitHub is the remote. Morning review is VS Code, not Cursor. Author: Nicolas Cravino / sw30labs.
 

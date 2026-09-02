@@ -55,6 +55,7 @@ def test_deck_lists_and_runs_mock(tmp_path, ns_home):
         assert "RUN" in html
         assert "brief-size" in html
         assert "JOBS" in html
+        assert "id=\"aineko\"" in html
         cfg = _get(base + "/api/config")
         assert cfg["mock"] is True
         assert cfg["brief_size"] == 3

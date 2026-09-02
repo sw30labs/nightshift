@@ -127,20 +127,34 @@ def commit_paths(repo: Path, message: str, paths: list[str] | None = None) -> st
 
 
 def revert_paths(repo: Path, paths: list[str]) -> list[str]:
-    """Restore unapproved paths from HEAD. New files are unlinked, not git-clean -fd."""
+    """Restore unapproved paths from HEAD.
+
+    Skip and record any path that resolves outside the target repo via ../
+    or absolute traversal instead of unlinking it. New files that stay
+    inside the repo are unlinked (not git-clean -fd).
+    """
     done: list[str] = []
+    repo_resolved = repo.resolve()
     for rel in paths:
+        if Path(rel).is_absolute():
+            done.append(f"SKIP (outside repo): {rel}")
+            continue
         rel_n = normalize_rel(rel)
         if not rel_n or rel_n.startswith(".nightshift/"):
             continue
-        abs_path = repo / rel_n
+        candidate = (repo / rel_n).resolve()
+        try:
+            candidate.relative_to(repo_resolved)
+        except ValueError:
+            done.append(f"SKIP (outside repo): {rel_n}")
+            continue
         tracked = git(repo, "ls-files", "--", rel_n, check=False)
         if tracked.stdout.strip():
             git(repo, "checkout", "--", rel_n)
             done.append(rel_n)
-        elif abs_path.exists():
-            if abs_path.is_file() or abs_path.is_symlink():
-                abs_path.unlink()
+        elif candidate.exists():
+            if candidate.is_file() or candidate.is_symlink():
+                candidate.unlink()
                 done.append(rel_n)
             # never rmtree directories blindly
     return done

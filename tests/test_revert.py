@@ -20,3 +20,20 @@ def test_revert_unapproved_paths(fixture_repo):
     assert "gold.md" in reverted
     assert not (fixture_repo / "gold.md").exists()
     assert "return a + b" in (fixture_repo / "widget.py").read_text(encoding="utf-8")
+
+
+def test_revert_paths_skips_absolute_escape(fixture_repo, tmp_path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret\n", encoding="utf-8")
+    reverted = revert_paths(fixture_repo, [str(outside)])
+    assert any(x.startswith("SKIP (outside repo):") for x in reverted)
+    assert outside.exists()
+    assert outside.read_text(encoding="utf-8") == "secret\n"
+
+
+def test_revert_paths_skips_parent_escape(fixture_repo):
+    outside = fixture_repo.parent / "outside.txt"
+    outside.write_text("secret\n", encoding="utf-8")
+    reverted = revert_paths(fixture_repo, ["../outside.txt"])
+    assert any(x.startswith("SKIP (outside repo):") for x in reverted)
+    assert outside.read_text(encoding="utf-8") == "secret\n"

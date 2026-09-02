@@ -87,6 +87,8 @@ def next_halt(halt_at: str, now: datetime) -> datetime:
     try:
         hh_s, mm_s = halt_at.split(":", 1)
         hh, mm = int(hh_s), int(mm_s)
+        if not (0 <= hh <= 23 and 0 <= mm <= 59):
+            raise ValueError
     except (ValueError, AttributeError):
         hh, mm = 6, 0
     candidate = now.replace(hour=hh, minute=mm, second=0, microsecond=0)

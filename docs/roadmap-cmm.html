@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<!-- mermaid-source
+flowchart LR
+  L0[L0 unobserved]
+  L1[L1 checkable DE]
+  L2[L2 nights with OE]
+  L3[L3 ledger memory]
+  L4[L4 forum reuse]
+  L5[L5 meta RSI]
+  L0 --> L1 --> L2 --> L3 --> L4 --> L5
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Nightshift · CMM atlas</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --paper: #e8dfd2; --ink: #14110e; --muted: #6f675e; --soft: #a39a8e;
+      --accent: #c44928; --accent-tint: rgba(196,73,40,0.10);
+      --sans: 'Geist', system-ui, sans-serif; --serif: 'Instrument Serif', serif;
+      --mono: 'Geist Mono', ui-monospace, monospace;
+    }
+    body { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 3rem 2rem; background: var(--paper); color: var(--ink); font-family: var(--sans); }
+    .frame { width: 100%; max-width: 1200px; }
+    .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+    .eyebrow { margin-bottom: 0.5rem; color: var(--muted); font: 500 0.66rem var(--mono); letter-spacing: 0.18em; text-transform: uppercase; }
+    h1 { margin-bottom: 0.4rem; color: var(--ink); font: 400 clamp(1.5rem, 2.4vw + 0.75rem, 2rem)/1.15 var(--serif); letter-spacing: -0.02em; }
+    .lede { color: var(--muted); font: 400 14px var(--sans); margin-bottom: 1.5rem; max-width: 42rem; }
+    #aineko { width: 40px; height: 40px; flex: 0 0 40px; }
+    svg.diagram { display: block; width: 100%; min-width: 900px; }
+    footer { margin-top: 1.25rem; padding-top: 0.75rem; border-top: 1px solid rgba(20,17,14,0.12); color: var(--soft); font: 400 8px var(--mono); letter-spacing: 0.08em; }
+  </style>
+</head>
+<body>
+  <main class="frame">
+    <div class="head">
+      <div>
+        <p class="eyebrow">Nightshift · Roadmap · Atlas</p>
+        <h1>CMM atlas</h1>
+      </div>
+      <svg id="aineko" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#c44928" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M5 18c-2.8-1.2-3.2-6 1-6.2"/>
+        <path d="M7 21c0-5 3.4-8 6.4-8h.4V21z"/>
+        <path d="M13.4 21V13c3.2 0 6 2.4 6 8z"/>
+        <circle cx="17.4" cy="10" r="3.2"/>
+        <path d="M14.8 8.4L15.5 5.2l1.7 3"/>
+        <path d="M17.8 8l1.9-3.4 1 3.6"/>
+        <circle cx="16.4" cy="10.1" r="0.7" fill="#c44928" stroke="none"/>
+        <circle cx="18.6" cy="10.1" r="0.7" fill="#c44928" stroke="none"/>
+      </svg>
+    </div>
+    <p class="lede">The frame of the histogram. Columns stay empty until nights write evidence. Not live scores.</p>
+
+    <svg class="diagram" viewBox="0 0 1040 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="roadmap-cmm-title roadmap-cmm-desc">
+      <title id="roadmap-cmm-title">CMM atlas</title>
+      <desc id="roadmap-cmm-desc">Six capability-maturity levels from unobserved to meta RSI, drawn as empty histogram columns. No repository scores are shown.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#6f675e"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#c44928"/></marker>
+      </defs>
+      <rect width="1040" height="420" fill="#e8dfd2"/>
+      <line x1="56" y1="48" x2="56" y2="280" stroke="#a39a8e" stroke-width="1"/>
+      <line x1="56" y1="280" x2="1000" y2="280" stroke="#a39a8e" stroke-width="1"/>
+      <text x="40" y="44" fill="#a39a8e" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">REPOS</text>
+
+      <rect x="96" y="240" width="96" height="40" rx="4" fill="#e8dfd2" stroke="#a39a8e" stroke-width="1" stroke-dasharray="4 3"/>
+      <rect x="248" y="200" width="96" height="80" rx="4" fill="#e8dfd2" stroke="#14110e" stroke-width="1"/>
+      <rect x="400" y="160" width="96" height="120" rx="4" fill="#e8dfd2" stroke="#14110e" stroke-width="1"/>
+      <rect x="552" y="120" width="96" height="160" rx="4" fill="#e8dfd2" stroke="#14110e" stroke-width="1"/>
+      <rect x="704" y="80" width="96" height="200" rx="4" fill="#e8dfd2" stroke="#14110e" stroke-width="1"/>
+      <rect x="856" y="48" width="96" height="232" rx="4" fill="rgba(196,73,40,0.10)" stroke="#c44928" stroke-width="1.2"/>
+
+      <text x="144" y="304" text-anchor="middle" fill="#14110e" font-size="12" font-weight="600" font-family="'Geist', sans-serif">L0</text>
+      <text x="144" y="320" text-anchor="middle" fill="#a39a8e" font-size="8" font-family="'Geist Mono', monospace">unobserved</text>
+      <text x="296" y="304" text-anchor="middle" fill="#14110e" font-size="12" font-weight="600" font-family="'Geist', sans-serif">L1</text>
+      <text x="296" y="320" text-anchor="middle" fill="#a39a8e" font-size="8" font-family="'Geist Mono', monospace">checkable DE</text>
+      <text x="448" y="304" text-anchor="middle" fill="#14110e" font-size="12" font-weight="600" font-family="'Geist', sans-serif">L2</text>
+      <text x="448" y="320" text-anchor="middle" fill="#a39a8e" font-size="8" font-family="'Geist Mono', monospace">nights with OE</text>
+      <text x="600" y="304" text-anchor="middle" fill="#14110e" font-size="12" font-weight="600" font-family="'Geist', sans-serif">L3</text>
+      <text x="600" y="320" text-anchor="middle" fill="#a39a8e" font-size="8" font-family="'Geist Mono', monospace">ledger memory</text>
+      <text x="752" y="304" text-anchor="middle" fill="#14110e" font-size="12" font-weight="600" font-family="'Geist', sans-serif">L4</text>
+      <text x="752" y="320" text-anchor="middle" fill="#a39a8e" font-size="8" font-family="'Geist Mono', monospace">forum reuse</text>
+      <text x="904" y="304" text-anchor="middle" fill="#c44928" font-size="12" font-weight="600" font-family="'Geist', sans-serif">L5</text>
+      <text x="904" y="320" text-anchor="middle" fill="#a39a8e" font-size="8" font-family="'Geist Mono', monospace">meta RSI</text>
+
+      <line x1="30" y1="356" x2="1010" y2="356" stroke="rgba(20,17,14,0.10)" stroke-width="0.8"/>
+      <text x="56" y="380" fill="#a39a8e" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+      <rect x="160" y="368" width="16" height="12" rx="2" fill="#e8dfd2" stroke="#a39a8e" stroke-dasharray="4 3"/>
+      <text x="184" y="378" fill="#6f675e" font-size="8" font-family="'Geist Mono', monospace">empty · no nights yet</text>
+      <rect x="400" y="368" width="16" height="12" rx="2" fill="#e8dfd2" stroke="#14110e"/>
+      <text x="424" y="378" fill="#6f675e" font-size="8" font-family="'Geist Mono', monospace">level frame</text>
+      <rect x="560" y="368" width="16" height="12" rx="2" fill="rgba(196,73,40,0.10)" stroke="#c44928"/>
+      <text x="584" y="378" fill="#6f675e" font-size="8" font-family="'Geist Mono', monospace">focal · meta RSI</text>
+    </svg>
+    <footer>SHAPE OF THE ATLAS · NOT LIVE SCORES · EVIDENCE COMES FROM NIGHTS</footer>
+  </main>
+</body>
+</html>

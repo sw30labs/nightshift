@@ -19,6 +19,8 @@ Then a Ralph loop until remaining is 0, the clock (default 06:00 local), or `max
 
 Merge it, cherry-pick it, or delete it. This is not a chatbot. The product is a `git diff`.
 
+Portfolio orchestrator, shared forum, CMM atlas: [ROADMAP.md](ROADMAP.md).
+
 ![Nightshift command deck](docs/command-deck.png)
 
 ![Nightshift command deck and LoopScope during a live overnight run](docs/deck-loopscope.png)

@@ -1,0 +1,18 @@
+flowchart LR
+  P[Portfolio]
+  O[Orchestrator]
+  N[Nights]
+  H[Morning]
+  F[(Shared forum)]
+  A[CMM atlas]
+  R[Meta Nightshift]
+
+  P -->|liked forked important| O
+  O -->|tonight plus always RSI| N
+  N -->|DE or OE jobs| H
+  H -->|you merge or drop| F
+  F --> A
+  A -->|maturity prior| P
+  O -.-> R
+  R --> N
+  N -.->|ledger per repo| F

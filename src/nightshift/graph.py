@@ -17,7 +17,7 @@ from .gitops import changed_paths, commit_paths, log_oneline, revert_paths, work
 from .host import run_check
 from .llm import Critic, Writer, persist_meta
 from .models import Brief, CheckResult, normalize_rel
-from .safety import is_meta_path
+from .safety import git_visible_files, is_blocked_rel, is_meta_path
 from .status import StatusBoard
 
 SKIP_SNAPSHOT_DIRS = {
@@ -100,19 +100,32 @@ def read_snapshot(repo: Path, max_bytes: int = 350_000) -> str:
     readme = repo / "README.md"
     if readme.is_file():
         chunks.append("## README.md\n" + readme.read_text(encoding="utf-8", errors="replace")[:8000])
+    visible = git_visible_files(repo)
     tree: list[str] = []
-    for path in sorted(repo.rglob("*")):
-        rel_parts = path.relative_to(repo).parts
-        if any(part in SKIP_SNAPSHOT_DIRS for part in rel_parts):
-            continue
-        if path.is_file():
-            tree.append(path.relative_to(repo).as_posix())
+    if visible is not None:
+        for rel in visible:
+            if is_blocked_rel(rel):
+                continue
+            parts = Path(rel).parts
+            if any(part in SKIP_SNAPSHOT_DIRS for part in parts):
+                continue
+            tree.append(rel)
+    else:
+        for path in sorted(repo.rglob("*")):
+            rel_parts = path.relative_to(repo).parts
+            if any(part in SKIP_SNAPSHOT_DIRS for part in rel_parts):
+                continue
+            if path.is_file() and not is_blocked_rel(path.relative_to(repo).as_posix()):
+                tree.append(path.relative_to(repo).as_posix())
     chunks.append("## tree\n" + "\n".join(tree[:500]))
+
     used = sum(len(c) for c in chunks)
     for rel in tree:
         if used >= max_bytes:
             break
         path = repo / rel
+        if is_blocked_rel(rel):
+            continue
         if path.suffix.lower() in SKIP_SUFFIXES:
             continue
         try:
@@ -198,9 +211,13 @@ class LoopNodes:
         job = str(state.get("job") or "")
         snapshot = read_snapshot(self.ctx.repo)
         result = self.ctx.writer.apply_job(job, brief, snapshot)
+        for note in result.refused:
+            if note not in self.ctx.refused:
+                self.ctx.refused.append(note)
         return {
             "brain": "writer",
             "written": result.written,
+            "refused": list(self.ctx.refused),
             "remaining_count": brief.remaining_count,
         }
 

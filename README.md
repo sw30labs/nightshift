@@ -149,6 +149,8 @@ The mock provider implements the same chat shape as the live HTTP clients. Unit 
 - Refuse `/` and `$HOME`. Refuse Nightshift’s own repo unless you explicitly selected it.
 - Cap turns (default 20) and wall clock (halt-at).
 - Writer tools: edit/create inside the target only. Critic has no write tool.
+- Snapshot is gitignore-aware and never reads `.env`, keys, or credential files.
+- A blocked secret write is skipped and recorded, not a dead night. Secret rotation is a human job.
 - Host checks run in the target repo with a timeout.
 - No `git push` unless `--push`.
 

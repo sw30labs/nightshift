@@ -8,8 +8,19 @@ from .models import SafetyError, normalize_rel
 
 PROTECTED_BRANCHES = frozenset({"main", "master"})
 BLOCKED_WRITE_NAMES = frozenset(
-    {".env", ".env.local", "id_rsa", "id_ed25519", "credentials.json"}
+    {
+        ".env",
+        ".env.local",
+        ".env.production",
+        ".env.development",
+        "id_rsa",
+        "id_ed25519",
+        "credentials.json",
+        "secrets.json",
+    }
 )
+BLOCKED_WRITE_SUFFIXES = frozenset({".pem", ".p12", ".key"})
+SNAPSHOT_OK_ENV_NAMES = frozenset({".env.example", ".env.sample", ".env.template"})
 
 
 def resolve_repo(path: Path) -> Path:
@@ -53,9 +64,41 @@ def assert_inside_repo(repo: Path, rel: str) -> Path:
     parts = set(candidate.relative_to(repo_r).parts)
     if ".git" in parts:
         raise SafetyError("writer may not touch .git/")
-    if candidate.name in BLOCKED_WRITE_NAMES:
+    if is_blocked_name(candidate.name):
         raise SafetyError(f"refusing to write {candidate.name}")
     return candidate
+
+
+def is_blocked_name(name: str) -> bool:
+    if name in SNAPSHOT_OK_ENV_NAMES:
+        return False
+    if name in BLOCKED_WRITE_NAMES:
+        return True
+    if name.startswith(".env"):
+        return True
+    return Path(name).suffix.lower() in BLOCKED_WRITE_SUFFIXES
+
+
+def is_blocked_rel(rel: str) -> bool:
+    return is_blocked_name(Path(normalize_rel(rel)).name)
+
+
+def git_visible_files(repo: Path) -> list[str] | None:
+    """Tracked + untracked, minus gitignore. None if git cannot list."""
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo), "ls-files", "-co", "--exclude-standard"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if proc.returncode != 0:
+        return None
+    return [ln.strip().replace("\\", "/") for ln in proc.stdout.splitlines() if ln.strip()]
 
 
 def is_meta_path(rel: str) -> bool:

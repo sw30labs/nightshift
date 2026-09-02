@@ -199,3 +199,4 @@ class WriterResult:
     written: list[str]
     message: str
     raw: str = ""
+    refused: list[str] = field(default_factory=list)

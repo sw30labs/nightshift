@@ -262,6 +262,7 @@ Do the one job in the user message. Do not add upgrades. The brief is frozen at 
 Return JSON only:
 {"files": [{"path": "relative/path.py", "content": "full file contents"}], "message": "short commit subject"}
 Edit only paths that serve the current job. No gold-plating. No new markdown essays.
+Never write .env, API keys, tokens, or private keys. If the job asks for that, skip those paths and do the rest.
 """
 
 CRITIC_BRIEF_SYSTEM = """You are the Nightshift critic (Mac oMLX / GLM-5.3-Flash).
@@ -269,6 +270,9 @@ Minute 0. You inspect only. You must never write the project body.
 Emit a frozen brief: EXACTLY THREE upgrades. Each must be checkable by a host command
 (pytest, a script, file-exists+content grep, npm test, ...). Not "cleaner architecture".
 If the repo has no tests, one of the three may be "add a smoke test that fails then make it pass".
+Never propose rotating, editing, committing, or reading secrets (.env, API keys, tokens, private keys).
+Do not list those files in upgrade paths. Secret hygiene is a human job, not a Nightshift upgrade.
+Pick three checkable code, test, or docs upgrades.
 Return JSON only:
 {"upgrades": [
   {"title": "...", "check_command": "...", "paths": ["file.py"]},
@@ -280,7 +284,7 @@ Exactly three objects. A fourth upgrade will be rejected.
 
 CRITIC_JOB_SYSTEM = """You are the Nightshift critic. Write one line: the next remaining brief item as a job for the writer.
 Return JSON: {"upgrade_id": 1, "job": "one line"}
-No file writes.
+No file writes. Never tell the writer to edit .env, keys, tokens, or credentials.
 """
 
 CRITIC_SCORE_SYSTEM = """You are the Nightshift critic. You may inspect, score, slash, revert, halt.
@@ -318,6 +322,7 @@ class Writer:
         payload.pop("extra_upgrades", None)
         payload.pop("brief", None)
         written: list[str] = []
+        refused: list[str] = []
         for row in payload.get("files") or []:
             if not isinstance(row, dict):
                 continue
@@ -327,12 +332,17 @@ class Writer:
             content = row.get("content")
             if content is None:
                 continue
-            write_project_file(self.repo, rel, str(content), role="writer")
-            written.append(rel.replace("\\", "/"))
+            try:
+                write_project_file(self.repo, rel, str(content), role="writer")
+            except SafetyError as exc:
+                refused.append(f"{rel}: {exc}")
+                continue
+            written.append(rel.replace(chr(92), "/"))
         return WriterResult(
             written=written,
             message=str(payload.get("message") or "writer pass")[:200],
             raw=raw,
+            refused=refused,
         )
 
 

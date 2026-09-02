@@ -26,22 +26,41 @@ class ChatClient(Protocol):
 
 
 def parse_json_object(text: str) -> dict[str, Any]:
-    raw = text.strip()
+    raw = (text or "").strip()
     if raw.startswith("```"):
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
-    try:
-        obj = json.loads(raw)
-        if isinstance(obj, dict):
-            return obj
-    except json.JSONDecodeError:
-        pass
+    blobs = [raw]
     start, end = raw.find("{"), raw.rfind("}")
     if start >= 0 and end > start:
-        obj = json.loads(raw[start : end + 1])
+        blobs.append(raw[start : end + 1])
+    seen: set[str] = set()
+    for blob in blobs:
+        if blob in seen:
+            continue
+        seen.add(blob)
+        try:
+            obj = json.loads(blob)
+        except json.JSONDecodeError:
+            continue
         if isinstance(obj, dict):
             return obj
     raise ValueError("no JSON object in model output")
+
+
+def completion_text(body: dict[str, Any]) -> str:
+    """Prefer message.content; GLM 5.3 / oMLX often fills reasoning_content instead."""
+    try:
+        msg = body["choices"][0]["message"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise RuntimeError(f"unexpected chat completion shape: {body!r}") from exc
+    if not isinstance(msg, dict):
+        raise RuntimeError(f"unexpected chat completion shape: {body!r}")
+    for key in ("content", "reasoning_content", "reasoning"):
+        val = msg.get(key)
+        if isinstance(val, str) and val.strip():
+            return val
+    return ""
 
 
 class OpenAICompatClient:
@@ -93,11 +112,7 @@ class OpenAICompatClient:
             raise RuntimeError(
                 f"LLM HTTP failed ({self.model} @ {self.base_url}): {exc}"
             ) from exc
-        try:
-            content = body["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise RuntimeError(f"unexpected chat completion shape: {body!r}") from exc
-        return content or ""
+        return completion_text(body)
 
 
 def write_project_file(repo: Path, rel: str, content: str, *, role: str) -> Path:
@@ -364,19 +379,37 @@ class Critic:
     def propose_brief(self, snapshot: str) -> list[Upgrade]:
         if getattr(self.client, "mock", False):
             return mock_upgrades_from_repo(self.repo)
-        raw = self.client.chat(
-            [
+        last_raw = ""
+        parse_err: Exception | None = None
+        user = snapshot[:200_000]
+        for attempt in range(3):
+            messages = [
                 {"role": "system", "content": CRITIC_BRIEF_SYSTEM},
-                {"role": "user", "content": snapshot[:200_000]},
+                {"role": "user", "content": user},
             ]
-        )
-        data = parse_json_object(raw)
-        extras = data.get("upgrades") if isinstance(data.get("upgrades"), list) else []
-        if len(extras) != 3:
-            raise FrozenBriefError(
-                f"fourth upgrade rejected; critic proposed {len(extras)} items"
-            )
-        return Brief.from_proposed(data).upgrades  # type: ignore[return-value]
+            if attempt:
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": "Previous reply was not a JSON object. Return JSON only.",
+                    }
+                )
+            last_raw = self.client.chat(messages)
+            try:
+                data = parse_json_object(last_raw)
+            except (ValueError, json.JSONDecodeError) as exc:
+                parse_err = exc
+                continue
+            extras = data.get("upgrades") if isinstance(data.get("upgrades"), list) else []
+            if len(extras) != 3:
+                raise FrozenBriefError(
+                    f"fourth upgrade rejected; critic proposed {len(extras)} items"
+                )
+            return Brief.from_proposed(data).upgrades  # type: ignore[return-value]
+        snippet = re.sub(r"\s+", " ", last_raw or "")[:400]
+        raise ValueError(
+            f"no JSON object in model output after 3 freeze attempts: {snippet!r}"
+        ) from parse_err
 
     def job_line(self, brief: Brief) -> tuple[int, str]:
         remaining = brief.remaining()

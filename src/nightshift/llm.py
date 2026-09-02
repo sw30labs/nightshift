@@ -14,6 +14,8 @@ from typing import Any, Protocol
 from .models import Brief, FrozenBriefError, SafetyError, Upgrade, WriterResult
 from .safety import assert_inside_repo, is_meta_path
 
+MAX_FULL_FILE_CHARS = 8_000
+
 
 class ChatClient(Protocol):
     def chat(
@@ -133,7 +135,11 @@ def apply_patch_hunk(repo: Path, rel: str, old: str, new: str, *, role: str) -> 
         raise SafetyError("writer may not edit .nightshift/ meta files")
     path = assert_inside_repo(repo, rel)
     if not path.is_file():
-        raise SafetyError(f"patch target missing: {rel}")
+        if len(new) > MAX_FULL_FILE_CHARS:
+            raise SafetyError(
+                f"patch target missing: {rel}; files[] content {len(new)} chars"
+            )
+        return write_project_file(repo, rel, new, role=role)
     text = path.read_text(encoding="utf-8")
     n = text.count(old)
     if n == 0:
@@ -297,12 +303,12 @@ Do the one job in the user message. Do not add upgrades. The brief is frozen.
 Return JSON only:
 {"patches": [{"path": "README.md", "old": "exact unique substring", "new": "replacement"}], "files": [{"path": "new.py", "content": "full contents"}], "message": "short commit subject"}
 Prefer patches for edits to existing files. Never dump a whole README, QUICKSTART, or any file over ~80 lines in files[].
-files[] is for NEW or tiny files only. old must appear exactly once in the current file.
+files[] is for NEW or tiny files only. If the path does not already exist, you MUST use files[] with the full contents. Never patches[] a missing path.
+old must appear exactly once in the current file.
 Edit only paths that serve the current job. No gold-plating. No new markdown essays.
 Never write .env, API keys, tokens, or private keys. If the job asks for that, skip those paths and do the rest.
 """
 
-MAX_FULL_FILE_CHARS = 8_000
 
 
 def critic_brief_system(size: int) -> str:
@@ -355,9 +361,28 @@ class Writer:
     def apply_job(self, job: str, brief: Brief, snapshot: str) -> WriterResult:
         if getattr(self.client, "repo", None) is not None:
             self.client.repo = self.repo  # type: ignore[attr-defined]
+        missing: list[str] = []
+        locked = brief.remaining()[0] if brief.remaining() else None
+        if locked is not None:
+            seen: set[str] = set()
+            for rel in locked.paths:
+                norm = str(rel or "").replace(chr(92), "/").strip()
+                if not norm or norm in seen:
+                    continue
+                seen.add(norm)
+                if not (self.repo / Path(norm)).is_file():
+                    missing.append(norm)
+        miss_note = ""
+        if missing:
+            joined = ", ".join(missing)
+            miss_note = (
+                "These job paths do not exist yet. Create them with files[] "
+                f"(full contents), never patches[]: {joined}\n\n"
+            )
         user = (
             f"Frozen brief (do not add extra upgrades):\n{json.dumps(brief.to_dict(), indent=2)}\n\n"
             f"Current job:\n{job}\n\n"
+            f"{miss_note}"
             f"Repo snapshot (truncated):\n{snapshot[:120_000]}\n"
         )
         raw = ""

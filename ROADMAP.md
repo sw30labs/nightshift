@@ -19,6 +19,8 @@ Cross-repo state lives in a **shared forum**, not only in per-clone silos. The *
 
 Editorial rendering (stone / rust, Aineko on the header): [docs/roadmap-loop.html](docs/roadmap-loop.html) · [docs/roadmap-cmm.html](docs/roadmap-cmm.html)
 
+![Overnight RSI](docs/roadmap-loop.png)
+
 ```mermaid
 flowchart LR
   P[Portfolio]
@@ -51,6 +53,8 @@ Not a chat. A state file (or Atlas page) you can read in the morning at portfoli
 ## CMM atlas
 
 Capability maturity as assessment, not as theatre. Empty columns until nights have written evidence. No invented scores.
+
+![CMM atlas](docs/roadmap-cmm.png)
 
 ```mermaid
 flowchart LR

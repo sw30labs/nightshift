@@ -31,6 +31,7 @@ def _settings_from(args: argparse.Namespace, *, mock_default: bool | None = None
         observe=not bool(getattr(args, "no_observe", False)),
         host=getattr(args, "host", None),
         port=getattr(args, "port", None),
+        brief_size=getattr(args, "brief_size", None),
     )
 
 
@@ -111,6 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--max-turns", type=int, help="Ralph turn cap (default 20)")
     p_run.add_argument("--no-observe", action="store_true", help="skip LoopScope bind")
     p_run.add_argument("--roots", nargs="*")
+    p_run.add_argument("--brief-size", type=int, help="frozen brief length 2-5 (default 3)")
     p_run.set_defaults(func=cmd_run)
 
     p_status = sub.add_parser("status", help="print the last/current shift")

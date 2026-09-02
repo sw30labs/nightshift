@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from .config import Settings
+from .models import BRIEF_SIZE_MAX, BRIEF_SIZE_MIN, FrozenBriefError
 from .demo import seed_widget
 from .repos import find_repos
 from .runner import run_night
@@ -42,9 +43,14 @@ class DeckState:
             )
         ]
 
-    def start_run(self, path: str, mock: bool | None) -> dict[str, Any]:
+    def start_run(self, path: str, mock: bool | None, brief_size: int | None = None) -> dict[str, Any]:
         if self.board.read().state == "running":
             return {"ok": False, "error": "a shift is already running"}
+        from .models import clamp_brief_size
+
+        size = clamp_brief_size(
+            brief_size if brief_size is not None else self.settings.brief_size
+        )
         settings = Settings(
             writer_base_url=self.settings.writer_base_url,
             writer_model=self.settings.writer_model,
@@ -61,6 +67,10 @@ class DeckState:
             observe=self.settings.observe,
             home=self.settings.home,
             loopscope_port=self.settings.loopscope_port,
+            writer_timeout=self.settings.writer_timeout,
+            critic_timeout=self.settings.critic_timeout,
+            stall_after=self.settings.stall_after,
+            brief_size=size,
         )
 
         def _go() -> None:
@@ -75,7 +85,7 @@ class DeckState:
             self.board.update(state="running", repo=path, error="", summary="")
             self._thread = threading.Thread(target=_go, daemon=True)
             self._thread.start()
-        return {"ok": True, "repo": path, "mock": settings.mock}
+        return {"ok": True, "repo": path, "mock": settings.mock, "brief_size": size}
 
 
 def make_handler(deck: DeckState):
@@ -119,6 +129,9 @@ def make_handler(deck: DeckState):
                         "roots": [str(p) for p in deck.settings.roots],
                         "loopscope_url": f"http://127.0.0.1:{deck.settings.loopscope_port}",
                         "halt_at": deck.settings.halt_at,
+                        "brief_size": deck.settings.brief_size,
+                        "brief_size_min": BRIEF_SIZE_MIN,
+                        "brief_size_max": BRIEF_SIZE_MAX,
                     },
                 )
                 return
@@ -143,7 +156,22 @@ def make_handler(deck: DeckState):
                     self._json(400, {"error": "path required"})
                     return
                 mock = payload.get("mock")
-                result = deck.start_run(path, mock if isinstance(mock, bool) else None)
+                brief_size = payload.get("brief_size", None)
+                if brief_size is not None:
+                    try:
+                        brief_size = int(brief_size)
+                    except (TypeError, ValueError) as exc:
+                        self._json(400, {"error": str(exc)})
+                        return
+                try:
+                    result = deck.start_run(
+                        path,
+                        mock if isinstance(mock, bool) else None,
+                        brief_size=brief_size,
+                    )
+                except FrozenBriefError as exc:
+                    self._json(400, {"error": str(exc)})
+                    return
                 self._json(200 if result.get("ok") else 409, result)
                 return
             self._json(404, {"error": "not found"})

@@ -92,6 +92,6 @@ def test_propose_brief_does_not_retry_a_fourth_upgrade(fixture_repo):
             )
 
     client = Four()
-    with pytest.raises(FrozenBriefError, match="fourth"):
+    with pytest.raises(FrozenBriefError, match="exactly 3"):
         Critic(client, fixture_repo).propose_brief("snapshot")
     assert client.n == 1

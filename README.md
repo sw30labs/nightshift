@@ -98,7 +98,7 @@ Minute 0, critic only (no writer, no project-body writes):
 1. Create and checkout `night/YYYY-MM-DD` (append `-HHMM` if that name exists).
 2. Read tree, tests, README, recent git log.
 3. Emit a **frozen brief**: exactly three upgrades. Each must be checkable by a host command (`pytest`, a script, file-exists + content grep, `npm test`, …). Not “cleaner architecture.” If the repo has no tests, one of the three may be “add a smoke test that fails then make it pass.”
-4. Persist `.nightshift/brief.json` on the night branch. After freeze the writer cannot add a fourth upgrade. The critic cannot quietly expand scope at 3am.
+4. Persist `.nightshift/brief.json` on the night branch. After freeze the writer cannot add extra upgrades once frozen. The critic cannot quietly expand scope at 3am.
 
 Then Ralph until `remaining_count == 0` or clock halt:
 
@@ -161,7 +161,7 @@ The mock provider implements the same chat shape as the live HTTP clients. Unit 
 pytest
 ```
 
-Covered: brief freeze (no fourth upgrade), critic cannot write files, host-check truth, branch naming, revert of unapproved paths, mock end-to-end to `remaining_count` 0 on a fixture git repo (failing tests → patches → real pytest → `summary.md` → night branch exists, `main` unchanged), command deck list + Run.
+Covered: brief freeze (cannot add extra upgrades once frozen), critic cannot write files, host-check truth, branch naming, revert of unapproved paths, mock end-to-end to `remaining_count` 0 on a fixture git repo (failing tests → patches → real pytest → `summary.md` → night branch exists, `main` unchanged), command deck list + Run.
 
 ## Layout
 

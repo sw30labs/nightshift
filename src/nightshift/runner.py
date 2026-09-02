@@ -1,4 +1,4 @@
-"""Overnight contract: freeze a 3-item brief, Ralph until remaining_count hits 0."""
+"""Overnight contract: freeze a brief, Ralph until remaining_count hits 0."""
 
 from __future__ import annotations
 
@@ -121,10 +121,11 @@ def write_summary(ctx: NightContext, brief: Brief, halt_reason: str) -> Path:
 
 
 def minute_zero(ctx: NightContext) -> NightState:
-    """Critic only. No writer. Persist a frozen 3-item brief on the night branch."""
+    """Critic only. No writer. Persist a frozen brief on the night branch."""
     ctx.status.update(brain="critic", state="running")
     snapshot = read_snapshot(ctx.repo)
-    proposed = ctx.critic.propose_brief(snapshot)
+    size = int(ctx.settings.brief_size)
+    proposed = ctx.critic.propose_brief(snapshot, size=size)
     branch = ctx.status.current.branch
     brief = Brief.freeze(
         list(proposed) if not isinstance(proposed, tuple) else list(proposed),
@@ -138,10 +139,10 @@ def minute_zero(ctx: NightContext) -> NightState:
     )
     commit_paths(
         ctx.repo,
-        "nightshift: freeze brief (3 upgrades)",
+        f"nightshift: freeze brief ({size} upgrades)",
         [".nightshift/brief.json"],
     )
-    log("frozen brief: 3 upgrades")
+    log(f"frozen brief: {size} upgrades")
     metric("remaining_count", float(brief.remaining_count))
     ctx.status.update(remaining_count=brief.remaining_count, brain="critic")
     return {
@@ -176,7 +177,7 @@ def run_night(repo: Path, settings: Settings, *, explicit: bool = True) -> Night
         state="running",
         repo=str(target),
         brain="critic",
-        remaining_count=3,
+        remaining_count=int(settings.brief_size),
         mock=settings.mock,
         halt_reason="",
         summary="",

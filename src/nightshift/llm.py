@@ -171,7 +171,7 @@ def compose_widget_py(repo: Path, *, fix_add: bool = False, add_greet: bool = Fa
     return add_fn + greet_fn
 
 
-def mock_upgrades_from_repo(repo: Path) -> list[Upgrade]:
+def mock_upgrades_from_repo(repo: Path, size: int = 3) -> list[Upgrade]:
     py = sys.executable
     found: list[tuple[str, str]] = []
     tests_dir = repo / "tests"
@@ -181,7 +181,7 @@ def mock_upgrades_from_repo(repo: Path) -> list[Upgrade]:
             for match in re.finditer(r"^def (test_\w+)", text, re.M):
                 found.append((tf.relative_to(repo).as_posix(), match.group(1)))
     upgrades: list[Upgrade] = []
-    for test_path, func in found[:3]:
+    for test_path, func in found[:size]:
         paths = ["widget.py"]
         if "version" in func:
             paths = ["VERSION"]
@@ -195,7 +195,7 @@ def mock_upgrades_from_repo(repo: Path) -> list[Upgrade]:
                 paths=paths,
             )
         )
-    while len(upgrades) < 3:
+    while len(upgrades) < size:
         n = len(upgrades) + 1
         if not found and n == 1:
             upgrades.append(
@@ -220,7 +220,7 @@ def mock_upgrades_from_repo(repo: Path) -> list[Upgrade]:
                 paths=[fname],
             )
         )
-    return upgrades[:3]
+    return upgrades[:size]
 
 
 @dataclass
@@ -242,8 +242,10 @@ class MockChatClient:
         user = messages[-1]["content"] if messages else ""
         if self.role == "writer":
             return json.dumps(self._writer_payload(user))
-        if "exactly three" in system or "frozen brief" in system or "three upgrades" in system:
-            items = mock_upgrades_from_repo(self.repo)
+        if "frozen brief" in system or "exactly" in system:
+            m = re.search(r"exactly (\d+) upgrades", system, re.I)
+            size = int(m.group(1)) if m else 3
+            items = mock_upgrades_from_repo(self.repo, size=size)
             return json.dumps({"upgrades": [u.to_dict() for u in items]})
         return json.dumps({"passed_ids": [], "revert_paths": [], "notes": []})
 
@@ -291,7 +293,7 @@ class MockChatClient:
 
 WRITER_SYSTEM = """You are the Nightshift writer (Spark / DeepSeek-V4-Flash).
 You are the only role allowed to edit files. You have no network.
-Do the one job in the user message. Do not add upgrades. The brief is frozen at 3 items.
+Do the one job in the user message. Do not add upgrades. The brief is frozen.
 Return JSON only:
 {"patches": [{"path": "README.md", "old": "exact unique substring", "new": "replacement"}], "files": [{"path": "new.py", "content": "full contents"}], "message": "short commit subject"}
 Prefer patches for edits to existing files. Never dump a whole README, QUICKSTART, or any file over ~80 lines in files[].
@@ -302,22 +304,31 @@ Never write .env, API keys, tokens, or private keys. If the job asks for that, s
 
 MAX_FULL_FILE_CHARS = 8_000
 
-CRITIC_BRIEF_SYSTEM = """You are the Nightshift critic (Mac oMLX / GLM-5.3-Flash).
+
+def critic_brief_system(size: int) -> str:
+    n = int(size)
+    extra_rows = '\n  '.join(
+        ['{\"title\": \"...\", \"check_command\": \"...\", \"paths\": [\"file.py\"]}']
+        + ['{\"title\": \"...\", \"check_command\": \"...\", \"paths\": [\"...\"]}'] * (n - 1)
+    )
+    return f"""You are the Nightshift critic (Mac oMLX / GLM-5.3-Flash).
 Minute 0. You inspect only. You must never write the project body.
-Emit a frozen brief: EXACTLY THREE upgrades. Each must be checkable by a host command
+Emit a frozen brief: EXACTLY {n} upgrades. Each must be checkable by a host command
 (pytest, a script, file-exists+content grep, npm test, ...). Not "cleaner architecture".
-If the repo has no tests, one of the three may be "add a smoke test that fails then make it pass".
+If the repo has no tests, one of the {n} may be "add a smoke test that fails then make it pass".
 Never propose rotating, editing, committing, or reading secrets (.env, API keys, tokens, private keys).
 Do not list those files in upgrade paths. Secret hygiene is a human job, not a Nightshift upgrade.
-Pick three checkable code, test, or docs upgrades.
+Pick {n} checkable code, test, or docs upgrades.
 Return JSON only:
-{"upgrades": [
-  {"title": "...", "check_command": "...", "paths": ["file.py"]},
-  {"title": "...", "check_command": "...", "paths": ["..."]},
-  {"title": "...", "check_command": "...", "paths": ["..."]}
-]}
-Exactly three objects. A fourth upgrade will be rejected.
+{{"upgrades": [
+  {extra_rows}
+]}}
+Exactly {n} objects. Extra upgrades will be rejected.
 """
+
+
+CRITIC_BRIEF_SYSTEM = critic_brief_system(3)
+
 
 CRITIC_JOB_SYSTEM = """You are the Nightshift critic. Write one line: the next remaining brief item as a job for the writer.
 Return JSON: {"upgrade_id": 1, "job": "one line"}
@@ -344,7 +355,7 @@ class Writer:
         if getattr(self.client, "repo", None) is not None:
             self.client.repo = self.repo  # type: ignore[attr-defined]
         user = (
-            f"Frozen brief (do not add a fourth upgrade):\n{json.dumps(brief.to_dict(), indent=2)}\n\n"
+            f"Frozen brief (do not add extra upgrades):\n{json.dumps(brief.to_dict(), indent=2)}\n\n"
             f"Current job:\n{job}\n\n"
             f"Repo snapshot (truncated):\n{snapshot[:120_000]}\n"
         )
@@ -444,15 +455,16 @@ class Critic:
         self.client = client
         self.repo = repo
 
-    def propose_brief(self, snapshot: str) -> list[Upgrade]:
+    def propose_brief(self, snapshot: str, size: int = 3) -> list[Upgrade]:
+        size = int(size)
         if getattr(self.client, "mock", False):
-            return mock_upgrades_from_repo(self.repo)
+            return mock_upgrades_from_repo(self.repo, size=size)
         last_raw = ""
         parse_err: Exception | None = None
         user = snapshot[:200_000]
         for attempt in range(3):
             messages = [
-                {"role": "system", "content": CRITIC_BRIEF_SYSTEM},
+                {"role": "system", "content": critic_brief_system(size)},
                 {"role": "user", "content": user},
             ]
             if attempt:
@@ -469,11 +481,11 @@ class Critic:
                 parse_err = exc
                 continue
             extras = data.get("upgrades") if isinstance(data.get("upgrades"), list) else []
-            if len(extras) != 3:
+            if len(extras) != size:
                 raise FrozenBriefError(
-                    f"fourth upgrade rejected; critic proposed {len(extras)} items"
+                    f"brief must be exactly {size} items, critic proposed {len(extras)}"
                 )
-            return Brief.from_proposed(data).upgrades  # type: ignore[return-value]
+            return Brief.from_proposed(data, size=size).upgrades  # type: ignore[return-value]
         snippet = re.sub(r"\s+", " ", last_raw or "")[:400]
         raise ValueError(
             f"no JSON object in model output after 3 freeze attempts: {snippet!r}"

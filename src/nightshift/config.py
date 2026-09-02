@@ -77,6 +77,9 @@ class Settings:
     critic_timeout: int = field(
         default_factory=lambda: int(os.environ.get("NIGHTSHIFT_CRITIC_TIMEOUT", "180"))
     )
+    brief_size: int = field(
+        default_factory=lambda: int(os.environ.get("NIGHTSHIFT_BRIEF_SIZE", "3"))
+    )
 
     def state_dir(self) -> Path:
         self.home.mkdir(parents=True, exist_ok=True)
@@ -91,6 +94,7 @@ class Settings:
         push: bool = False,
         halt_at: str | None = None,
         max_turns: int | None = None,
+        brief_size: int | None = None,
         include_deprecated: bool = False,
         observe: bool = True,
         host: str | None = None,
@@ -106,10 +110,15 @@ class Settings:
             s.halt_at = halt_at
         if max_turns is not None:
             s.max_turns = max_turns
+        if brief_size is not None:
+            s.brief_size = brief_size
         s.include_deprecated = include_deprecated
         s.observe = observe
         if host:
             s.deck_host = host
         if port is not None:
             s.deck_port = port
+        from .models import clamp_brief_size
+
+        s.brief_size = clamp_brief_size(s.brief_size)
         return s

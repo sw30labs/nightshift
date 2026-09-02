@@ -1,4 +1,4 @@
-"""Frozen brief, upgrades, check results. After freeze, there is no fourth item."""
+"""Frozen brief, upgrades, check results. After freeze, the list cannot grow."""
 
 from __future__ import annotations
 
@@ -8,7 +8,24 @@ from typing import Any, Iterable
 
 
 class FrozenBriefError(RuntimeError):
-    """Raised when a fourth upgrade is proposed or the freeze contract is broken."""
+    """Raised when the freeze contract is broken."""
+
+
+BRIEF_SIZE_MIN = 2
+BRIEF_SIZE_MAX = 5
+BRIEF_SIZE_DEFAULT = 3
+
+
+def clamp_brief_size(n: int) -> int:
+    try:
+        size = int(n)
+    except (TypeError, ValueError) as exc:
+        raise FrozenBriefError(f"brief size must be an integer, got {n!r}") from exc
+    if size < BRIEF_SIZE_MIN or size > BRIEF_SIZE_MAX:
+        raise FrozenBriefError(
+            f"brief size must be {BRIEF_SIZE_MIN}-{BRIEF_SIZE_MAX}, got {size}"
+        )
+    return size
 
 
 class SafetyError(RuntimeError):
@@ -56,10 +73,8 @@ class Brief:
     branch: str = ""
 
     def __post_init__(self) -> None:
-        if self.frozen and len(self.upgrades) != 3:
-            raise FrozenBriefError(
-                f"brief must contain exactly 3 upgrades, got {len(self.upgrades)}"
-            )
+        if self.frozen:
+            clamp_brief_size(len(self.upgrades))
         object.__setattr__(self, "upgrades", tuple(self.upgrades))
 
     @property
@@ -77,9 +92,7 @@ class Brief:
         return out
 
     def add_upgrade(self, upgrade: Upgrade) -> None:
-        raise FrozenBriefError(
-            "brief is frozen at 3 upgrades; cannot add a fourth"
-        )
+        raise FrozenBriefError("brief is frozen; cannot add another upgrade")
 
     def mark_done(self, ids: Iterable[int]) -> None:
         want = set(ids)
@@ -112,10 +125,7 @@ class Brief:
         branch: str = "",
         created_at: str | None = None,
     ) -> "Brief":
-        if len(upgrades) != 3:
-            raise FrozenBriefError(
-                f"brief must contain exactly 3 upgrades, got {len(upgrades)}"
-            )
+        clamp_brief_size(len(upgrades))
         stamped = created_at or datetime.now(timezone.utc).isoformat()
         items = []
         for i, u in enumerate(upgrades, 1):
@@ -144,13 +154,15 @@ class Brief:
         *,
         repo: str = "",
         branch: str = "",
+        size: int = BRIEF_SIZE_DEFAULT,
     ) -> "Brief":
         raw = data.get("upgrades")
         if not isinstance(raw, list):
             raise FrozenBriefError("brief JSON must have an upgrades list")
-        if len(raw) != 3:
+        want = clamp_brief_size(size)
+        if len(raw) != want:
             raise FrozenBriefError(
-                f"fourth upgrade rejected; brief must be exactly 3 items, got {len(raw)}"
+                f"brief must be exactly {want} items, got {len(raw)}"
             )
         items = []
         for i, row in enumerate(raw, 1):

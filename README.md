@@ -1,4 +1,7 @@
+<img src="docs/aineko.svg" alt="Aineko" width="48" align="right"/>
+
 # Nightshift
+
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org)
 [![LangGraph](https://img.shields.io/badge/LangGraph-0.2-1C3C3C)](https://github.com/langchain-ai/langgraph)
@@ -22,6 +25,10 @@ Merge it, cherry-pick it, or delete it. This is not a chatbot. The product is a 
 ![Nightshift command deck](docs/command-deck.png)
 
 ![Nightshift command deck and LoopScope during a live overnight run](docs/deck-loopscope.png)
+
+![Meta Nightshift / RSI](docs/rsi-graph.png)
+
+*Meta Nightshift / RSI — recursive self-improvement. Orange is the night (Nightshift writing Nightshift). Blue is `main`. You still merge.*
 
 Personal-capacity OSS. GitHub is the remote. Morning review is VS Code, not Cursor. Author: Nicolas Cravino / sw30labs.
 

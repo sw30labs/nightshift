@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Nightshift · command deck</title>
+  <style>
+    :root {
+      --bg: #14110e;
+      --panel: #1c1814;
+      --panel-2: #241f1a;
+      --line: #3a322b;
+      --stone: #a39a8e;
+      --paper: #e8dfd2;
+      --rust: #c44928;
+      --rust-dim: #8c321c;
+      --moss: #7a8f62;
+      --lamp-off: #3a322b;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--paper); }
+    body {
+      font: 14px/1.45 "IBM Plex Mono", "Source Code Pro", ui-monospace, Menlo, monospace;
+      min-height: 100vh;
+    }
+    header {
+      display: flex; align-items: baseline; justify-content: space-between;
+      gap: 1rem; padding: 1.1rem 1.4rem 0.9rem;
+      border-bottom: 1px solid var(--line);
+    }
+    header h1 {
+      margin: 0; font-size: 13px; letter-spacing: 0.42em; color: var(--rust);
+      font-weight: 600;
+    }
+    header .tag { color: var(--stone); font-size: 12px; letter-spacing: 0.08em; }
+    header a { color: var(--rust); }
+    main {
+      display: grid;
+      grid-template-columns: minmax(240px, 340px) 1fr;
+      min-height: calc(100vh - 58px);
+    }
+    @media (max-width: 820px) {
+      main { grid-template-columns: 1fr; }
+    }
+    aside, section { padding: 1.1rem 1.4rem; }
+    aside { border-right: 1px solid var(--line); background: var(--panel); }
+    h2 {
+      margin: 0 0 0.8rem; font-size: 11px; letter-spacing: 0.28em;
+      color: var(--stone); font-weight: 600;
+    }
+    .row { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; margin-bottom: 0.8rem; }
+    button, .chk {
+      background: var(--panel-2); color: var(--paper);
+      border: 1px solid var(--line); padding: 0.45rem 0.8rem;
+      font: inherit; letter-spacing: 0.12em; cursor: pointer;
+    }
+    button.primary { background: var(--rust-dim); border-color: var(--rust); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button:hover:not(:disabled) { border-color: var(--paper); }
+    label.chk { display: inline-flex; gap: 0.4rem; align-items: center; font-size: 12px; color: var(--stone); letter-spacing: 0.06em; }
+    #repos { list-style: none; margin: 0; padding: 0; }
+    #repos li {
+      padding: 0.55rem 0.6rem; border: 1px solid transparent;
+      cursor: pointer; margin-bottom: 0.25rem;
+    }
+    #repos li:hover { background: var(--panel-2); }
+    #repos li.sel { border-color: var(--rust); background: var(--panel-2); }
+    #repos .name { display: block; color: var(--paper); }
+    #repos .meta { display: block; color: var(--stone); font-size: 11px; }
+    .empty { color: var(--stone); }
+    .count {
+      font-size: 92px; line-height: 0.9; letter-spacing: -0.04em;
+      color: var(--paper); margin: 0.2rem 0 0.6rem;
+    }
+    .count.hot { color: var(--rust); }
+    .brains { display: flex; gap: 1rem; margin-bottom: 1rem; }
+    .lamp { display: flex; align-items: center; gap: 0.5rem; color: var(--stone); }
+    .dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--lamp-off); border: 1px solid var(--line);
+    }
+    .lamp.on .dot { background: var(--rust); box-shadow: 0 0 10px var(--rust); }
+    .lamp.on { color: var(--paper); }
+    pre {
+      background: #100e0c; border: 1px solid var(--line);
+      padding: 0.8rem; overflow: auto; max-height: 240px;
+      white-space: pre-wrap; color: var(--stone); font-size: 12px;
+    }
+    .summary {
+      border: 1px solid var(--line); padding: 0.9rem 1rem;
+      background: var(--panel); max-height: 360px; overflow: auto;
+      white-space: pre-wrap; color: var(--paper); font-size: 13px;
+    }
+    footer { margin-top: 1.2rem; color: var(--stone); font-size: 12px; }
+    footer a { color: var(--moss); }
+    .err { color: var(--rust); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>NIGHTSHIFT</h1>
+    <div class="tag">TWO BRAINS · ONE BRANCH · <a id="loopscope" href="http://127.0.0.1:7788" target="_blank" rel="noreferrer">LOOPSCOPE</a></div>
+  </header>
+  <main>
+    <aside>
+      <h2>REPOS</h2>
+      <div class="row">
+        <label class="chk"><input type="checkbox" id="deprecated"/> DEPRECATED</label>
+        <label class="chk"><input type="checkbox" id="mock"/> MOCK</label>
+        <button type="button" id="refresh">SCAN</button>
+      </div>
+      <ul id="repos"><li class="empty">scanning…</li></ul>
+    </aside>
+    <section>
+      <h2>RUN</h2>
+      <p id="selected" class="empty">Select a git project, press Run, go to sleep.</p>
+      <div class="row">
+        <button type="button" class="primary" id="run" disabled>RUN</button>
+        <span id="phase" class="empty">idle</span>
+      </div>
+      <div class="count" id="remaining">—</div>
+      <div class="brains">
+        <div class="lamp" id="lamp-critic"><span class="dot"></span> CRITIC · oMLX</div>
+        <div class="lamp" id="lamp-writer"><span class="dot"></span> WRITER · SPARK DS4</div>
+        <div class="lamp" id="lamp-host"><span class="dot"></span> HOST CHECK</div>
+      </div>
+      <h2>LAST CHECK</h2>
+      <pre id="check">(none yet)</pre>
+      <h2>MORNING</h2>
+      <div class="summary" id="summary">summary.md appears here after halt.</div>
+      <p id="error" class="err"></p>
+      <footer>
+        Personal capacity. Origin is the source of truth.
+        Never commits to main. Never force-push.
+      </footer>
+    </section>
+  </main>
+  <script>
+    let selected = null;
+    const $ = (id) => document.getElementById(id);
+
+    function setLamp(brain) {
+      for (const id of ["lamp-critic", "lamp-writer", "lamp-host"]) {
+        $(id).classList.toggle("on", false);
+      }
+      if (brain === "critic") $("lamp-critic").classList.add("on");
+      if (brain === "writer") $("lamp-writer").classList.add("on");
+      if (brain === "host") $("lamp-host").classList.add("on");
+    }
+
+    async function loadRepos() {
+      const dep = $("deprecated").checked ? "1" : "0";
+      const r = await fetch("/api/repos?include_deprecated=" + dep);
+      const data = await r.json();
+      const ul = $("repos");
+      ul.innerHTML = "";
+      if (!data.repos.length) {
+        ul.innerHTML = '<li class="empty">No git repos under the configured roots. Default is ~/REPOS.</li>';
+        return;
+      }
+      for (const repo of data.repos) {
+        const li = document.createElement("li");
+        li.dataset.path = repo.path;
+        li.innerHTML = '<span class="name">' + repo.name + '</span><span class="meta">' +
+          repo.path + " · " + repo.branch + (repo.dirty ? " · dirty" : "") + "</span>";
+        li.addEventListener("click", () => {
+          selected = repo.path;
+          for (const n of ul.children) n.classList.remove("sel");
+          li.classList.add("sel");
+          $("selected").textContent = repo.path;
+          $("run").disabled = false;
+        });
+        ul.appendChild(li);
+      }
+    }
+
+    async function loadStatus() {
+      const r = await fetch("/api/status");
+      const s = await r.json();
+      $("phase").textContent = (s.state || "idle") + (s.branch ? " · " + s.branch : "");
+      if (s.remaining_count === null || s.remaining_count === undefined || s.remaining_count === "") {
+        $("remaining").textContent = "—";
+        $("remaining").classList.remove("hot");
+      } else {
+        $("remaining").textContent = String(s.remaining_count);
+        $("remaining").classList.toggle("hot", s.remaining_count > 0 && s.state === "running");
+      }
+      setLamp(s.brain || "");
+      if (s.last_check && s.last_check.command) {
+        $("check").textContent = "$ " + s.last_check.command + "\nexit " + s.last_check.exit_code +
+          "\n" + (s.last_check.output || "");
+      }
+      if (s.summary) $("summary").textContent = s.summary;
+      $("error").textContent = s.error || "";
+      if (s.loopscope_url) $("loopscope").href = s.loopscope_url;
+      $("run").disabled = !selected || s.state === "running";
+    }
+
+    $("run").addEventListener("click", async () => {
+      if (!selected) return;
+      $("run").disabled = true;
+      $("summary").textContent = "shift started…";
+      const r = await fetch("/api/run", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({path: selected, mock: $("mock").checked})
+      });
+      const data = await r.json();
+      if (!r.ok) $("error").textContent = data.error || r.statusText;
+    });
+    $("refresh").addEventListener("click", loadRepos);
+    $("deprecated").addEventListener("change", loadRepos);
+
+    fetch("/api/config").then(r => r.json()).then(c => {
+      if (c.mock) $("mock").checked = true;
+      if (c.loopscope_url) $("loopscope").href = c.loopscope_url;
+    }).catch(() => {});
+    loadRepos();
+    loadStatus();
+    setInterval(loadStatus, 800);
+  </script>
+</body>
+</html>

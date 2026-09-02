@@ -1,0 +1,68 @@
+"""Host checks. Pytest/output is truth, not the model's opinion."""
+
+from __future__ import annotations
+
+import os
+import shlex
+import subprocess
+import sys
+from pathlib import Path
+
+from .models import CheckResult, Upgrade
+
+
+def argv_for(command: str) -> list[str]:
+    parts = shlex.split(command, posix=True)
+    if not parts:
+        raise ValueError("empty check command")
+    if parts[0] in {"python", "python3", "py"}:
+        parts[0] = sys.executable
+    return parts
+
+
+def run_check(repo: Path, upgrade: Upgrade, timeout: int) -> CheckResult:
+    argv = argv_for(upgrade.check_command)
+    env = os.environ.copy()
+    env.setdefault("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
+    try:
+        proc = subprocess.run(
+            argv,
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
+        )
+        output = ((proc.stdout or "") + (proc.stderr or ""))[-8000:]
+        return CheckResult(
+            upgrade_id=upgrade.id,
+            command=upgrade.check_command,
+            ok=proc.returncode == 0,
+            exit_code=proc.returncode,
+            output=output,
+        )
+    except subprocess.TimeoutExpired as exc:
+        tail = ""
+        if exc.stdout:
+            tail += exc.stdout if isinstance(exc.stdout, str) else exc.stdout.decode()
+        if exc.stderr:
+            tail += exc.stderr if isinstance(exc.stderr, str) else exc.stderr.decode()
+        return CheckResult(
+            upgrade_id=upgrade.id,
+            command=upgrade.check_command,
+            ok=False,
+            exit_code=-1,
+            output=f"timeout after {timeout}s\n{tail}"[-8000:],
+        )
+    except OSError as exc:
+        return CheckResult(
+            upgrade_id=upgrade.id,
+            command=upgrade.check_command,
+            ok=False,
+            exit_code=-1,
+            output=str(exc),
+        )
+
+
+def run_remaining(repo: Path, upgrades: list[Upgrade], timeout: int) -> list[CheckResult]:
+    return [run_check(repo, u, timeout) for u in upgrades]

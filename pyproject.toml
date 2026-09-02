@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nightshift"
+version = "0.1.0"
+description = "Local overnight coding agent: pick a repo, sleep, wake up to a git branch."
+readme = "README.md"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Nicolas Cravino", email = "spidernic@me.com"},
+]
+maintainers = [
+    {name = "sw30labs"},
+]
+requires-python = ">=3.11"
+keywords = ["ralph", "langgraph", "overnight", "agent", "loopscope"]
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development",
+]
+dependencies = [
+    "langgraph>=0.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+]
+
+[project.urls]
+Homepage = "https://github.com/sw30labs"
+Repository = "https://github.com/sw30labs"
+
+[project.scripts]
+nightshift = "nightshift.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+nightshift = ["deck.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

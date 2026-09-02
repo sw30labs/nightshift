@@ -27,3 +27,28 @@ def test_host_pytest_survives_cov_addopts(tmp_path: Path):
     )
     assert row.ok, row.output
     assert "unrecognized arguments" not in (row.output or "")
+
+
+def test_needs_shell_for_bang_grep():
+    from nightshift.host import needs_shell
+
+    assert needs_shell("! grep -q foo README.md && grep -q bar README.md")
+    assert not needs_shell("python -m pytest tests/test_ok.py -q")
+
+
+def test_host_bang_grep_runs_in_shell(tmp_path: Path):
+    repo = tmp_path / "proj"
+    repo.mkdir()
+    (repo / "README.md").write_text("hello\n")
+    row = run_check(
+        repo,
+        Upgrade(
+            1,
+            "no foo",
+            "! grep -q foo README.md && grep -q hello README.md",
+            ["README.md"],
+        ),
+        timeout=10,
+    )
+    assert row.ok, row.output
+    assert "No such file or directory" not in (row.output or "")

@@ -25,6 +25,11 @@ def _is_python_exe(exe: str) -> bool:
     return name in {"python", "python3", "py"} or name.startswith("python")
 
 
+def needs_shell(command: str) -> bool:
+    """Compound critic checks (!, &&, pipes) must run under /bin/sh."""
+    return any(tok in command for tok in ("&&", "||", ";", "|", "`", "$(", "!", ">", "<"))
+
+
 def argv_for(command: str, repo: Path | None = None) -> list[str]:
     parts = shlex.split(command, posix=True)
     if not parts:
@@ -39,12 +44,21 @@ def argv_for(command: str, repo: Path | None = None) -> list[str]:
 
 
 def run_check(repo: Path, upgrade: Upgrade, timeout: int) -> CheckResult:
-    argv = argv_for(upgrade.check_command, repo)
     env = os.environ.copy()
     env.pop("PYTEST_DISABLE_PLUGIN_AUTOLOAD", None)
+    command = upgrade.check_command
+    if needs_shell(command):
+        py = interpreter_for(repo)
+        rewritten = command
+        for token in ("python3", "python"):
+            rewritten = rewritten.replace(f"{token} -m pytest", f"{py} -m pytest -o addopts=")
+            rewritten = rewritten.replace(f"{token} -c", f"{py} -c")
+        popen: str | list[str] = ["/bin/sh", "-c", rewritten]
+    else:
+        popen = argv_for(command, repo)
     try:
         proc = subprocess.run(
-            argv,
+            popen,
             cwd=repo,
             capture_output=True,
             text=True,

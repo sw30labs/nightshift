@@ -126,6 +126,24 @@ def write_project_file(repo: Path, rel: str, content: str, *, role: str) -> Path
     return path
 
 
+def apply_patch_hunk(repo: Path, rel: str, old: str, new: str, *, role: str) -> Path:
+    if role != "writer":
+        raise SafetyError("only the writer may edit the project body")
+    if is_meta_path(rel):
+        raise SafetyError("writer may not edit .nightshift/ meta files")
+    path = assert_inside_repo(repo, rel)
+    if not path.is_file():
+        raise SafetyError(f"patch target missing: {rel}")
+    text = path.read_text(encoding="utf-8")
+    n = text.count(old)
+    if n == 0:
+        raise SafetyError(f"patch hunk not found in {rel}")
+    if n > 1:
+        raise SafetyError(f"patch hunk is not unique in {rel} ({n} matches)")
+    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+    return path
+
+
 def persist_meta(repo: Path, rel: str, content: str) -> Path:
     if not is_meta_path(rel):
         raise SafetyError("meta persist is limited to .nightshift/")
@@ -275,10 +293,14 @@ WRITER_SYSTEM = """You are the Nightshift writer (Spark / DeepSeek-V4-Flash).
 You are the only role allowed to edit files. You have no network.
 Do the one job in the user message. Do not add upgrades. The brief is frozen at 3 items.
 Return JSON only:
-{"files": [{"path": "relative/path.py", "content": "full file contents"}], "message": "short commit subject"}
+{"patches": [{"path": "README.md", "old": "exact unique substring", "new": "replacement"}], "files": [{"path": "new.py", "content": "full contents"}], "message": "short commit subject"}
+Prefer patches for edits to existing files. Never dump a whole README, QUICKSTART, or any file over ~80 lines in files[].
+files[] is for NEW or tiny files only. old must appear exactly once in the current file.
 Edit only paths that serve the current job. No gold-plating. No new markdown essays.
 Never write .env, API keys, tokens, or private keys. If the job asks for that, skip those paths and do the rest.
 """
+
+MAX_FULL_FILE_CHARS = 8_000
 
 CRITIC_BRIEF_SYSTEM = """You are the Nightshift critic (Mac oMLX / GLM-5.3-Flash).
 Minute 0. You inspect only. You must never write the project body.
@@ -326,26 +348,64 @@ class Writer:
             f"Current job:\n{job}\n\n"
             f"Repo snapshot (truncated):\n{snapshot[:120_000]}\n"
         )
-        try:
-            raw = self.client.chat(
-                [
+        raw = ""
+        payload: dict[str, Any] | None = None
+        for attempt in range(3):
+            try:
+                messages = [
                     {"role": "system", "content": WRITER_SYSTEM},
                     {"role": "user", "content": user},
                 ]
-            )
-        except (TimeoutError, urllib.error.URLError) as exc:
+                if attempt:
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": "Previous reply was not a JSON object. Return JSON only.",
+                        }
+                    )
+                raw = self.client.chat(messages)
+            except (TimeoutError, urllib.error.URLError) as exc:
+                return WriterResult(
+                    written=[],
+                    message="timeout",
+                    raw="",
+                    refused=[f"writer timed out ({exc}); will retry"],
+                )
+            try:
+                payload = parse_json_object(raw)
+                break
+            except (ValueError, json.JSONDecodeError):
+                payload = None
+                continue
+        if payload is None:
+            snippet = re.sub(r"\s+", " ", raw or "")[:240]
             return WriterResult(
                 written=[],
-                message="timeout",
-                raw="",
-                refused=[f"writer timed out ({exc}); will retry"],
+                message="non-json",
+                raw=raw,
+                refused=[f"writer returned non-JSON; will retry ({snippet!r})"],
             )
-        payload = parse_json_object(raw)
         payload.pop("upgrades", None)
         payload.pop("extra_upgrades", None)
         payload.pop("brief", None)
         written: list[str] = []
         refused: list[str] = []
+        for row in payload.get("patches") or []:
+            if not isinstance(row, dict):
+                continue
+            rel = str(row.get("path") or "").strip()
+            old = row.get("old")
+            new = row.get("new")
+            if not rel or old is None or new is None:
+                continue
+            try:
+                apply_patch_hunk(self.repo, rel, str(old), str(new), role="writer")
+            except SafetyError as exc:
+                refused.append(f"{rel}: {exc}")
+                continue
+            norm = rel.replace(chr(92), "/")
+            if norm not in written:
+                written.append(norm)
         for row in payload.get("files") or []:
             if not isinstance(row, dict):
                 continue
@@ -355,12 +415,20 @@ class Writer:
             content = row.get("content")
             if content is None:
                 continue
+            body = str(content)
+            if len(body) > MAX_FULL_FILE_CHARS:
+                refused.append(
+                    f"{rel}: full-file payload {len(body)} chars; use patches[] for existing files"
+                )
+                continue
             try:
-                write_project_file(self.repo, rel, str(content), role="writer")
+                write_project_file(self.repo, rel, body, role="writer")
             except SafetyError as exc:
                 refused.append(f"{rel}: {exc}")
                 continue
-            written.append(rel.replace(chr(92), "/"))
+            norm = rel.replace(chr(92), "/")
+            if norm not in written:
+                written.append(norm)
         return WriterResult(
             written=written,
             message=str(payload.get("message") or "writer pass")[:200],

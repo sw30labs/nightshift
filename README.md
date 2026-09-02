@@ -5,7 +5,7 @@
 [![LoopScope](https://img.shields.io/badge/LoopScope-hook-7a8f62)](https://github.com/sw30labs/loopscope)
 [![License](https://img.shields.io/badge/License-Apache_2.0-green.svg)](LICENSE)
 
-Pick a git project. Go to sleep. Wake up to a **checklist on a branch**. You decide what lands.
+Pick a git project. The objective is **areas of improvement**: Nightshift finds the checkable ones, freezes a short brief, and works them overnight. Wake up to a checklist on a branch. You decide what lands.
 
 Electricity is cheaper at night. The local supercomputers are already paid for: two NVIDIA Sparks and a 512 GB Mac Studio. Leave them dark and that capex earns nothing until morning. Nightshift is continuous improvement on the overnight tariff — same machines, cheaper electrons, a frozen brief, a branch you review when you wake up.
 

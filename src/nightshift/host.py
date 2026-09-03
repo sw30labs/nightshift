@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -39,7 +40,9 @@ def argv_for(command: str, repo: Path | None = None) -> list[str]:
     if "pytest" in parts and "-o" not in parts:
         # Target pytest.ini often injects --cov. Nightshift's venv may not have
         # pytest-cov, and a single-file check should not inherit CI addopts.
-        parts.extend(["-o", "addopts="])
+        idx = parts.index("pytest")
+        parts.insert(idx + 1, "-o")
+        parts.insert(idx + 2, "addopts=")
     return parts
 
 
@@ -50,9 +53,15 @@ def run_check(repo: Path, upgrade: Upgrade, timeout: int) -> CheckResult:
     if needs_shell(command):
         py = interpreter_for(repo)
         rewritten = command
+        # Compound checks: strip CI addopts after each pytest token, not at EOL.
         for token in ("python3", "python"):
             rewritten = rewritten.replace(f"{token} -m pytest", f"{py} -m pytest -o addopts=")
             rewritten = rewritten.replace(f"{token} -c", f"{py} -c")
+        rewritten = re.sub(
+            r"(?<!\w)pytest(?!\s+-o)(?!\w)",
+            "pytest -o addopts=",
+            rewritten,
+        )
         popen: str | list[str] = ["/bin/sh", "-c", rewritten]
     else:
         try:

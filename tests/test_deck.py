@@ -229,3 +229,112 @@ def test_deck_rejects_brief_size_6(tmp_path, ns_home):
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_deck_html_has_new_instruments(ns_home):
+    settings = Settings(mock=True, observe=False, home=ns_home, deck_port=0)
+    httpd = serve_deck(settings, demo=True)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = httpd.server_address[:2]
+        base = f"http://{host}:{port}"
+        with urllib.request.urlopen(base + "/", timeout=5) as resp:
+            html = resp.read().decode("utf-8")
+        assert 'id="brief"' in html
+        assert 'id="halt"' in html
+        assert 'id="tohalt"' in html
+        assert 'id="turns"' in html
+        assert "aineko.resting" in html
+        assert "prefers-reduced-motion" in html
+        cfg = _get(base + "/api/config")
+        assert "max_turns" in cfg
+        assert "writer_timeout" in cfg
+        assert "critic_timeout" in cfg
+        assert "check_timeout" in cfg
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_deck_run_exposes_brief_and_turns(tmp_path, ns_home):
+    settings = Settings(
+        mock=True,
+        observe=False,
+        home=ns_home,
+        max_turns=12,
+        stall_after=12,
+        check_timeout=30,
+        deck_host="127.0.0.1",
+        deck_port=0,
+        push=False,
+    )
+    httpd = serve_deck(settings, demo=True)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = httpd.server_address[:2]
+        base = f"http://{host}:{port}"
+        widget = _get(base + "/api/repos")["repos"][0]["path"]
+        code, started = _post(base + "/api/run", {"path": widget, "mock": True})
+        assert code == 200, started
+        deadline = time.time() + 60
+        snap = {}
+        while time.time() < deadline:
+            snap = _get(base + "/api/status")
+            if snap.get("state") in {"done", "halted", "error"}:
+                break
+            time.sleep(0.25)
+        assert snap.get("state") == "done", snap
+        ups = (snap.get("brief") or {}).get("upgrades") or []
+        assert len(ups) == 2
+        assert all(u.get("done") for u in ups)
+        assert set((snap.get("checks") or {})) >= {"1", "2"}
+        assert (snap.get("checks") or {}).get("1", {}).get("ok") is True
+        assert snap.get("last_check", {}).get("upgrade_id") == snap.get("job_upgrade_id")
+        assert snap.get("started_at", 0) > 0
+        assert snap.get("deadline", 0) > snap.get("started_at", 0)
+        turns = snap.get("turns") or []
+        assert len(turns) >= 2
+        for row in turns:
+            if row.get("kind") == "freeze":
+                continue
+            c = row.get("commit") or ""
+            assert len(c) in {0, 7}
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_deck_rejects_dirty_unless_allowed(tmp_path, ns_home):
+    settings = Settings(
+        mock=True, observe=False, home=ns_home, deck_port=0, max_turns=4, stall_after=4
+    )
+    httpd = serve_deck(settings, demo=True)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = httpd.server_address[:2]
+        base = f"http://{host}:{port}"
+        widget = _get(base + "/api/repos")["repos"][0]["path"]
+        from pathlib import Path
+
+        (Path(widget) / "scratch.py").write_text("x\n")
+        code, body = _post(base + "/api/run", {"path": widget, "mock": True})
+        assert code == 409, body
+        assert "scratch.py" in (body.get("error") or "")
+        code, body = _post(
+            base + "/api/run", {"path": widget, "mock": True, "allow_dirty": True}
+        )
+        assert code == 200, body
+        deadline = time.time() + 60
+        snap = {}
+        while time.time() < deadline:
+            snap = _get(base + "/api/status")
+            if snap.get("state") in {"done", "halted", "error"}:
+                break
+            time.sleep(0.25)
+        assert snap.get("state") in {"done", "halted"}
+    finally:
+        httpd.shutdown()
+        httpd.server_close()

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
 
 from .models import SafetyError, normalize_rel
-from .safety import PROTECTED_BRANCHES
+from .safety import PROTECTED_BRANCHES, is_blocked_rel, is_junk, is_meta_path
 
 NIGHTSHIFT_GIT_ENV = {
     "GIT_AUTHOR_NAME": "Nightshift",
@@ -16,6 +17,8 @@ NIGHTSHIFT_GIT_ENV = {
     "GIT_COMMITTER_NAME": "Nightshift",
     "GIT_COMMITTER_EMAIL": "nightshift@localhost",
 }
+
+_OCTAL_ESCAPE = re.compile(r"\\([0-7]{3})")
 
 
 def git(
@@ -41,6 +44,29 @@ def git(
             f"{(proc.stderr or proc.stdout).strip()}"
         )
     return proc
+
+
+def unescape_git_path(raw: str) -> str:
+    """Undo core.quotepath C-style quoting (`caf\\303\\251.txt`)."""
+    s = (raw or "").strip()
+    quoted = len(s) >= 2 and s[0] == '"' and s[-1] == '"'
+    if quoted:
+        s = s[1:-1]
+    if "\\" not in s:
+        return s.replace("\\", "/")
+
+    def _oct(match: re.Match[str]) -> str:
+        return chr(int(match.group(1), 8))
+
+    s = _OCTAL_ESCAPE.sub(_oct, s)
+    s = (
+        s.replace(r"\\", "\\")
+        .replace(r"\"", '"')
+        .replace(r"\t", "\t")
+        .replace(r"\n", "\n")
+        .replace(r"\r", "\r")
+    )
+    return s.replace("\\", "/")
 
 
 def current_branch(repo: Path) -> str:
@@ -80,12 +106,12 @@ def night_branch_name(existing: set[str], now: datetime) -> str:
     return f"{tagged_s}-{i}"
 
 
-def checkout_night_branch(repo: Path, now: datetime) -> str:
-    name = night_branch_name(list_local_branches(repo), now)
-    git(repo, "checkout", "-b", name)
+def checkout_night_branch(repo: Path, now: datetime, name: str | None = None) -> str:
+    branch = name or night_branch_name(list_local_branches(repo), now)
+    git(repo, "checkout", "-b", branch)
     if current_branch(repo) in PROTECTED_BRANCHES:
         raise SafetyError("failed to leave main/master before the night")
-    return name
+    return branch
 
 
 def assert_not_protected(repo: Path) -> str:
@@ -96,20 +122,40 @@ def assert_not_protected(repo: Path) -> str:
 
 
 def changed_paths(repo: Path) -> list[str]:
-    porcelain = git(repo, "status", "--porcelain").stdout.splitlines()
+    porcelain = git(
+        repo,
+        "-c",
+        "core.quotepath=false",
+        "status",
+        "--porcelain",
+        "--untracked-files=all",
+    ).stdout.splitlines()
     out: list[str] = []
+    seen: set[str] = set()
     for line in porcelain:
         if not line.strip():
             continue
-        raw = line[3:]
+        raw = line[3:] if len(line) > 3 else line
         if " -> " in raw:
             raw = raw.split(" -> ", 1)[1]
-        out.append(raw.strip().strip('"'))
+        rel = unescape_git_path(raw.strip())
+        rel = normalize_rel(rel)
+        if not rel or rel in seen:
+            continue
+        seen.add(rel)
+        out.append(rel)
     return out
 
 
-def commit_paths(repo: Path, message: str, paths: list[str] | None = None) -> str | None:
+def commit_paths(
+    repo: Path,
+    message: str,
+    paths: list[str] | None = None,
+    *,
+    exclude: set[str] | None = None,
+) -> str | None:
     assert_not_protected(repo)
+    skip = {normalize_rel(p) for p in (exclude or set()) if str(p).strip()}
     if paths:
         existing = [p for p in paths if p]
         if not existing:
@@ -117,7 +163,20 @@ def commit_paths(repo: Path, message: str, paths: list[str] | None = None) -> st
         # -f: .nightshift/ is often gitignored; freeze/summary still must land
         git(repo, "add", "-f", "--", *existing)
     else:
-        git(repo, "add", "-A", "--", ".")
+        to_add = [
+            p
+            for p in changed_paths(repo)
+            if p not in skip and not is_junk(p)
+        ]
+        if not to_add:
+            git(repo, "reset", "-q", check=False)
+            return None
+        present = [p for p in to_add if (repo / p).exists()]
+        missing = [p for p in to_add if p not in present]
+        for i in range(0, len(present), 500):
+            git(repo, "add", "--", *present[i : i + 500])
+        for i in range(0, len(missing), 500):
+            git(repo, "add", "-u", "--", *missing[i : i + 500], check=False)
     staged = git(repo, "diff", "--cached", "--name-only").stdout.strip()
     if not staged:
         git(repo, "reset", "-q", check=False)
@@ -131,7 +190,8 @@ def revert_paths(repo: Path, paths: list[str]) -> list[str]:
 
     Skip and record any path that resolves outside the target repo via ../
     or absolute traversal instead of unlinking it. New files that stay
-    inside the repo are unlinked (not git-clean -fd).
+    inside the repo are unlinked (not git-clean -fd). Blocked names, .git/,
+    and Nightshift meta are never touched.
     """
     done: list[str] = []
     repo_resolved = repo.resolve()
@@ -140,13 +200,19 @@ def revert_paths(repo: Path, paths: list[str]) -> list[str]:
             done.append(f"SKIP (outside repo): {rel}")
             continue
         rel_n = normalize_rel(rel)
-        if not rel_n or rel_n.startswith(".nightshift/"):
+        if not rel_n or is_meta_path(rel_n):
+            continue
+        if is_blocked_rel(rel_n) or is_junk(rel_n):
+            done.append(f"SKIP (blocked): {rel_n}")
             continue
         candidate = (repo / rel_n).resolve()
         try:
             candidate.relative_to(repo_resolved)
         except ValueError:
             done.append(f"SKIP (outside repo): {rel_n}")
+            continue
+        if any(part.lower() == ".git" for part in candidate.relative_to(repo_resolved).parts):
+            done.append(f"SKIP (blocked): {rel_n}")
             continue
         tracked = git(repo, "ls-files", "--", rel_n, check=False)
         if tracked.stdout.strip():
@@ -165,14 +231,32 @@ def log_oneline(repo: Path, n: int = 12) -> str:
     return proc.stdout.strip()
 
 
-def diff_stat_against(repo: Path, base: str) -> str:
-    proc = git(repo, "diff", "--stat", f"{base}...HEAD", check=False)
+def diff_stat_against(repo: Path, base: str, extra: list[str] | None = None) -> str:
+    args = ["diff", "--stat", f"{base}...HEAD"]
+    if extra:
+        args.extend(extra)
+    proc = git(repo, *args, check=False)
     return proc.stdout.strip()
 
 
 def commits_since(repo: Path, base: str) -> str:
     proc = git(repo, "log", "--oneline", f"{base}..HEAD", check=False)
     return proc.stdout.strip()
+
+
+def commits_touching(repo: Path, base: str, paths: list[str]) -> list[str]:
+    if not paths:
+        return []
+    proc = git(
+        repo,
+        "log",
+        "--format=%h",
+        f"{base}..HEAD",
+        "--",
+        *paths,
+        check=False,
+    )
+    return [ln.strip() for ln in proc.stdout.splitlines() if ln.strip()]
 
 
 def working_tree_diff(repo: Path) -> str:

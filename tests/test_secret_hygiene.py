@@ -46,8 +46,11 @@ def test_snapshot_skips_env_and_gitignore(tmp_path):
     assert "sk-live-not-for-models" not in snap
     assert "also-secret" not in snap
     assert "## file .env\n" not in snap
+    assert "## job file .env" not in snap
     assert "app.py" in snap
     assert ".env.example" in snap
+    focused = read_snapshot(repo, focus=[".env"])
+    assert "sk-live-not-for-models" not in focused
 
 
 def test_writer_skips_env_and_keeps_going(tmp_path):

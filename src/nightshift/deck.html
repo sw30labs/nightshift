@@ -55,6 +55,7 @@
       font: inherit; letter-spacing: 0.12em; cursor: pointer;
     }
     button.primary { background: var(--rust-dim); border-color: var(--rust); }
+    button.danger { border-color: var(--rust); color: var(--rust); }
     button:disabled { opacity: 0.4; cursor: not-allowed; }
     button:hover:not(:disabled) { border-color: var(--paper); }
     label.chk { display: inline-flex; gap: 0.4rem; align-items: center; font-size: 12px; color: var(--stone); letter-spacing: 0.06em; }
@@ -77,7 +78,15 @@
       color: var(--paper); margin: 0.2rem 0 0.6rem;
     }
     .count.hot { color: var(--rust); }
-    .brains { display: flex; gap: 1rem; margin-bottom: 1rem; }
+    .clock { color: var(--stone); font-size: 12px; letter-spacing: 0.08em; margin-bottom: 0.4rem; }
+    .clock .soon { color: var(--rust); }
+    .bars { display: flex; gap: 0.4rem; height: 4px; margin-bottom: 0.8rem; }
+    .bars i { display: block; height: 100%; background: var(--line); flex: 1; position: relative; overflow: hidden; }
+    .bars i::after {
+      content: ""; position: absolute; inset: 0 auto 0 0; width: var(--w, 0%);
+      background: var(--rust); display: block;
+    }
+    .brains { display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
     .lamp { display: flex; align-items: center; gap: 0.5rem; color: var(--stone); }
     .dot {
       width: 10px; height: 10px; border-radius: 50%;
@@ -85,6 +94,17 @@
     }
     .lamp.on .dot { background: var(--rust); box-shadow: 0 0 10px var(--rust); }
     .lamp.on { color: var(--paper); }
+    .lamp .since { color: var(--stone); font-size: 11px; margin-left: 0.3rem; }
+    .lamp.late .since { color: var(--rust); }
+    .lamp.late .dot { animation: pulse 1.2s ease-in-out infinite; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .lamp.late .dot { animation: none; }
+      .aineko.watching .tail { animation: none; }
+    }
     pre {
       background: #100e0c; border: 1px solid var(--line);
       padding: 0.8rem; overflow: auto; max-height: 240px;
@@ -105,21 +125,52 @@
     .aineko.watching .idle-eyes { display: none; }
     .aineko.watching .watch-eyes { display: block; }
     .aineko.watching { color: var(--rust); }
+    .aineko.resting { color: var(--moss); }
+    .aineko.halt { color: var(--rust); }
     .aineko-label { display: block; font-size: 7px; letter-spacing: 1px; margin-top: 2px; color: inherit; }
     .aineko.watching .tail { transform-origin: 6px 16px; animation: aineko-tail 1.4s ease-in-out infinite; }
     @keyframes aineko-tail {
       0%, 100% { transform: rotate(0deg); }
       50% { transform: rotate(-18deg); }
     }
-    @media (prefers-reduced-motion: reduce) { .aineko.watching .tail { animation: none; } }
     .err { color: var(--rust); }
+    .err.dirty { color: var(--rust); }
+    #brief { list-style: none; margin: 0 0 1rem; padding: 0; }
+    .up {
+      display: grid;
+      grid-template-columns: 4.5em 1fr auto;
+      gap: .2rem .8rem;
+      padding: .45rem .6rem;
+      border: 1px solid var(--line);
+      margin-bottom: .3rem;
+    }
+    .up.cur { border-left: 2px solid var(--rust); }
+    .up.done .mark { color: var(--moss); }
+    .up.void { opacity: .5; }
+    .up.void .title { text-decoration: line-through; }
+    .up .mark { letter-spacing: 0.08em; font-size: 11px; color: var(--stone); }
+    .up .title { overflow-wrap: anywhere; }
+    .up .check, .up .paths, .up .note { color: var(--stone); font-size: 12px; grid-column: 2 / -1; }
+    .host.ok { color: var(--moss); }
+    .host.fail { color: var(--rust); }
+    #turns { list-style: none; margin: 0 0 1rem; padding: 0; }
+    .t {
+      display: flex; flex-wrap: wrap; gap: .6rem; align-items: baseline;
+      padding: .4rem .6rem; border-bottom: 1px solid var(--line);
+    }
+    .t.ok .host { color: var(--moss); }
+    .t.fail .host { color: var(--rust); }
+    .t.done .uid::after { content: " DONE"; color: var(--moss); }
+    .t.void .uid::after { content: " VOID"; color: var(--rust); }
+    .t .n, .t .uid, .t .sha { color: var(--stone); font-size: 12px; }
+    details.notes { color: var(--stone); font-size: 12px; }
   </style>
 </head>
 <body>
   <header>
     <h1>NIGHTSHIFT</h1>
     <div class="header-right">
-      <div class="tag">TWO BRAINS · ONE BRANCH · <a id="loopscope" href="http://127.0.0.1:7788" target="_blank" rel="noreferrer">LOOPSCOPE</a></div>
+      <div class="tag">TWO BRAINS · ONE BRANCH · <span id="turns-badge"></span> <a id="loopscope" href="http://127.0.0.1:7788" target="_blank" rel="noreferrer">LOOPSCOPE</a></div>
       <div id="aineko" class="aineko" title="Aineko · idle" role="status" aria-live="polite">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path class="tail" d="M5 18c-2.8-1.2-3.2-6 1-6.2"/>
@@ -146,6 +197,7 @@
       <div class="row">
         <label class="chk"><input type="checkbox" id="deprecated"/> DEPRECATED</label>
         <label class="chk"><input type="checkbox" id="mock"/> MOCK</label>
+        <label class="chk"><input type="checkbox" id="allow-dirty"/> ALLOW DIRTY</label>
         <label class="chk">JOBS <select id="brief-size"><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label>
         <button type="button" id="refresh">SCAN</button>
       </div>
@@ -156,16 +208,24 @@
       <p id="selected" class="empty">Select a git project, press Run, go to sleep.</p>
       <div class="row">
         <button type="button" class="primary" id="run" disabled>RUN</button>
+        <button type="button" id="dry">DRY RUN</button>
+        <button type="button" id="halt" class="danger" disabled>HALT AFTER TURN</button>
         <span id="phase" class="empty">idle</span>
       </div>
       <div class="count" id="remaining">—</div>
+      <div class="clock"><span id="elapsed">—</span> · <span id="tohalt">—</span> · <span id="turnbudget">—</span></div>
+      <div class="bars"><i id="bar-night"></i><i id="bar-turns"></i></div>
       <div class="brains">
-        <div class="lamp" id="lamp-critic"><span class="dot"></span> CRITIC · oMLX</div>
-        <div class="lamp" id="lamp-writer"><span class="dot"></span> WRITER · SPARK DS4</div>
-        <div class="lamp" id="lamp-host"><span class="dot"></span> HOST CHECK</div>
+        <div class="lamp" id="lamp-critic"><span class="dot"></span> CRITIC · oMLX <span class="since"></span></div>
+        <div class="lamp" id="lamp-writer"><span class="dot"></span> WRITER · SPARK DS4 <span class="since"></span></div>
+        <div class="lamp" id="lamp-host"><span class="dot"></span> HOST CHECK <span class="since"></span></div>
       </div>
+      <h2>BRIEF <span id="brief-n" class="tag"></span></h2>
+      <ol id="brief"></ol>
       <h2>LAST CHECK</h2>
       <pre id="check">(none yet)</pre>
+      <h2>TURNS <span id="turns-n" class="tag"></span></h2>
+      <ol id="turns" reversed></ol>
       <h2>MORNING</h2>
       <div class="summary" id="summary">summary.md appears here after halt.</div>
       <p id="error" class="err"></p>
@@ -177,24 +237,204 @@
   </main>
   <script>
     let selected = null;
+    let lastStatus = {};
+    let cfg = {max_turns: 20, writer_timeout: 600, critic_timeout: 180, check_timeout: 120, halt_at: "06:00"};
     const $ = (id) => document.getElementById(id);
 
-    function setAineko(watching) {
+    function setAineko(state) {
       const el = $("aineko");
       if (!el) return;
-      el.classList.toggle("watching", watching);
-      el.title = watching ? "Aineko · watching the night" : "Aineko · idle";
+      el.classList.remove("watching", "resting", "halt");
       const lab = el.querySelector(".aineko-label");
-      if (lab) lab.textContent = watching ? "WATCH" : "IDLE";
+      if (state === "running") {
+        el.classList.add("watching");
+        el.title = "Aineko · watching the night";
+        if (lab) lab.textContent = "WATCH";
+      } else if (state === "done") {
+        el.classList.add("resting");
+        el.title = "Aineko · done";
+        if (lab) lab.textContent = "DONE";
+      } else if (state === "halted" || state === "error") {
+        el.classList.add("halt");
+        el.title = "Aineko · halt";
+        if (lab) lab.textContent = "HALT";
+      } else {
+        el.title = "Aineko · idle";
+        if (lab) lab.textContent = "IDLE";
+      }
     }
 
-    function setLamp(brain) {
+    function setLamp(brain, updatedAt) {
       for (const id of ["lamp-critic", "lamp-writer", "lamp-host"]) {
         $(id).classList.toggle("on", false);
+        $(id).classList.toggle("late", false);
       }
-      if (brain === "critic") $("lamp-critic").classList.add("on");
-      if (brain === "writer") $("lamp-writer").classList.add("on");
-      if (brain === "host") $("lamp-host").classList.add("on");
+      const map = {critic: "lamp-critic", writer: "lamp-writer", host: "lamp-host"};
+      const timeouts = {critic: cfg.critic_timeout, writer: cfg.writer_timeout, host: cfg.check_timeout};
+      if (map[brain]) {
+        const el = $(map[brain]);
+        el.classList.add("on");
+        const since = el.querySelector(".since");
+        if (since && updatedAt) {
+          const sec = Math.max(0, (Date.now() - Date.parse(updatedAt)) / 1000);
+          const m = Math.floor(sec / 60);
+          const s = Math.floor(sec % 60);
+          since.textContent = m + ":" + String(s).padStart(2, "0");
+          const limit = timeouts[brain] || 120;
+          if (sec > 0.8 * limit) {
+            el.classList.add("late");
+            $("aineko").title = "Aineko · waiting on " + brain;
+          }
+        }
+      }
+    }
+
+    function fmtDur(sec) {
+      sec = Math.max(0, sec);
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      if (h) return h + "h" + m + "m";
+      return m + "m";
+    }
+
+    function tickClock(s) {
+      const started = Number(s.started_at || 0);
+      const deadline = Number(s.deadline || 0);
+      const maxTurns = Number(s.max_turns || cfg.max_turns || 0);
+      if (!started) {
+        $("elapsed").textContent = "—";
+        $("tohalt").textContent = "—";
+        $("turnbudget").textContent = "—";
+        $("bar-night").style.setProperty("--w", "0%");
+        $("bar-turns").style.setProperty("--w", "0%");
+        return;
+      }
+      const now = (s.state === "running") ? (Date.now() / 1000) : (Number(s.updated_at ? (Date.parse(s.updated_at)/1000) : Date.now()/1000));
+      const elapsed = now - started;
+      if (s.state === "done" || s.state === "halted" || s.state === "error") {
+        const hh = new Date((s.updated_at && Date.parse(s.updated_at)) || Date.now());
+        $("elapsed").textContent = "ran " + fmtDur(elapsed);
+        $("tohalt").textContent = "halted " + (s.halt_reason || "") + " at " + hh.toTimeString().slice(0,5);
+        $("turnbudget").textContent = "TURN " + (s.turn || 0) + "/" + maxTurns;
+        return;
+      }
+      $("elapsed").textContent = fmtDur(elapsed);
+      const left = deadline - now;
+      const haltEl = $("tohalt");
+      haltEl.textContent = "to " + (cfg.halt_at || "06:00") + " · " + fmtDur(left);
+      haltEl.classList.toggle("soon", left < 30 * 60);
+      $("turnbudget").textContent = "TURN " + (s.turn || 0) + "/" + maxTurns;
+      const nightW = deadline > started ? Math.min(100, 100 * elapsed / (deadline - started)) : 0;
+      const turnW = maxTurns ? Math.min(100, 100 * (s.turn || 0) / maxTurns) : 0;
+      $("bar-night").style.setProperty("--w", nightW + "%");
+      $("bar-turns").style.setProperty("--w", turnW + "%");
+    }
+
+    function renderBrief(s) {
+      const ol = $("brief");
+      const ups = ((s.brief || {}).upgrades) || [];
+      $("brief-n").textContent = ups.length ? String(ups.length) : "";
+      const have = new Set();
+      for (const u of ups) {
+        have.add(String(u.id));
+        let li = ol.querySelector('li[data-id="' + u.id + '"]');
+        if (!li) {
+          li = document.createElement("li");
+          li.dataset.id = String(u.id);
+          ol.appendChild(li);
+        }
+        const isCur = Number(s.job_upgrade_id) === Number(u.id) && s.state === "running";
+        let cls = "up " + (u.void ? "void" : (u.done ? "done" : (isCur ? "cur" : "open")));
+        li.className = cls;
+        const mark = u.void ? "VOID" : (u.done ? "DONE" : (isCur ? "NOW" : "OPEN"));
+        const streak = s.fail_streak || {};
+        let host = "";
+        const chk = (s.checks || {})[String(u.id)] || {};
+        if (u.void) host = "void: " + (u.void_reason || "");
+        else if (chk.exit_code !== undefined && chk.exit_code !== null) {
+          host = "exit " + chk.exit_code;
+          if (Number(streak.upgrade_id) === Number(u.id) && streak.count) {
+            host += " · same failure x" + streak.count + " of 3";
+          }
+        }
+        const hostCls = (chk.ok ? "host ok" : (chk.exit_code ? "host fail" : "host"));
+        li.replaceChildren();
+        const add = (cls, text) => { const sp = document.createElement("span"); sp.className = cls; sp.textContent = text; li.appendChild(sp); };
+        add("mark", mark);
+        add("title", u.title || "");
+        add(hostCls, host);
+        add("check", "$ " + (u.check_command || ""));
+        add("paths", (u.paths || []).join(", "));
+        if (u.note) add("note", u.note);
+        li.onclick = () => {
+          const c = (s.checks || {})[String(u.id)] || {};
+          $("check").textContent = "$ " + (u.check_command || "") + "\n" + (c.tail || "");
+        };
+      }
+      for (const li of [...ol.children]) {
+        if (!have.has(li.dataset.id)) li.remove();
+      }
+    }
+
+    function tagNote(note) {
+      const n = String(note || "");
+      if (n.startsWith("reverted unapproved path")) return "REVERT";
+      if (n.includes("write outside job paths")) return "LOCK";
+      if (n.includes("patch hunk")) return "PATCH";
+      if (n.toLowerCase().includes("timed out") || n.includes("timeout")) return "TIMEOUT";
+      if (n.includes("voided")) return "VOID";
+      if (n.includes("SyntaxError")) return "COMPILE";
+      return "NOTE";
+    }
+
+    function renderTurns(s) {
+      const ol = $("turns");
+      const rows = s.turns || [];
+      $("turns-n").textContent = rows.length ? String(rows.length) : "";
+      const notesN = rows.reduce((n, r) => n + ((r.writer_refused || []).length + (r.critic_notes || []).length), 0);
+      $("turns-badge").textContent = rows.length ? ("TURNS · " + rows.length + " · " + notesN + " notes · ") : "";
+      const open = new Set([...ol.querySelectorAll("details[open]")].map(d => d.closest("li")?.dataset.turn));
+      if (ol.dataset.len === String(rows.length) && ol.children.length === rows.length) return;
+      ol.dataset.len = String(rows.length);
+      ol.replaceChildren();
+      for (const row of [...rows].reverse()) {
+        if (row.kind === "freeze") continue;
+        const li = document.createElement("li");
+        const ok = !!(row.check && row.check.ok);
+        const voided = !!row.void;
+        const done = (row.done_ids_after || []).includes(row.upgrade_id);
+        li.className = "t " + (voided ? "void" : (done ? "done" : (ok ? "ok" : "fail")));
+        li.dataset.turn = String(row.turn);
+        const add = (cls, text) => { const sp = document.createElement("span"); sp.className = cls; sp.textContent = text; li.appendChild(sp); };
+        add("n", "T" + row.turn);
+        add("uid", "#" + row.upgrade_id);
+        add("job", row.job || "");
+        add("host", "exit " + ((row.check && row.check.exit_code) != null ? row.check.exit_code : ""));
+        const secs = row.secs || {};
+        const dur = (secs.critic_job || 0) + (secs.writer || 0) + (secs.host_check || 0) + (secs.critic_score || 0);
+        add("dur", Math.round(dur) + "s");
+        add("rev", "reverted " + ((row.reverted || []).length));
+        add("sha", row.commit || "");
+        const notes = [].concat(row.writer_refused || [], row.critic_notes || [], row.compile_errors || []);
+        if (notes.length) {
+          const det = document.createElement("details");
+          det.className = "notes";
+          if (open.has(String(row.turn))) det.open = true;
+          const sum = document.createElement("summary");
+          sum.textContent = notes.length + " notes";
+          det.appendChild(sum);
+          const ul = document.createElement("ul");
+          ul.className = "notes";
+          for (const n of notes) {
+            const item = document.createElement("li");
+            item.textContent = tagNote(n) + " " + n;
+            ul.appendChild(item);
+          }
+          det.appendChild(ul);
+          li.appendChild(det);
+        }
+        ol.appendChild(li);
+      }
     }
 
     async function loadRepos() {
@@ -202,16 +442,25 @@
       const r = await fetch("/api/repos?include_deprecated=" + dep);
       const data = await r.json();
       const ul = $("repos");
-      ul.innerHTML = "";
+      ul.replaceChildren();
       if (!data.repos.length) {
-        ul.innerHTML = '<li class="empty">No git repos under the configured roots. Default is ~/REPOS.</li>';
+        const li = document.createElement("li");
+        li.className = "empty";
+        li.textContent = "No git repos under the configured roots. Default is ~/REPOS.";
+        ul.appendChild(li);
         return;
       }
       for (const repo of data.repos) {
         const li = document.createElement("li");
         li.dataset.path = repo.path;
-        li.innerHTML = '<span class="name">' + repo.name + '</span><span class="meta">' +
-          repo.path + " · " + repo.branch + (repo.dirty ? " · dirty" : "") + "</span>";
+        const name = document.createElement("span");
+        name.className = "name";
+        name.textContent = repo.name;
+        const meta = document.createElement("span");
+        meta.className = "meta";
+        meta.textContent = repo.path + " · " + repo.branch + (repo.dirty ? " · dirty" : "");
+        li.appendChild(name);
+        li.appendChild(meta);
         li.addEventListener("click", () => {
           selected = repo.path;
           for (const n of ul.children) n.classList.remove("sel");
@@ -226,7 +475,10 @@
     async function loadStatus() {
       const r = await fetch("/api/status");
       const s = await r.json();
-      $("phase").textContent = (s.state || "idle") + (s.branch ? " · " + s.branch : "");
+      lastStatus = s;
+      let phase = (s.state || "idle") + (s.branch ? " · " + s.branch : "");
+      if (s.state === "running" && s.halt_requested) phase = "running · halt requested";
+      $("phase").textContent = phase;
       if (s.remaining_count === null || s.remaining_count === undefined || s.remaining_count === "") {
         $("remaining").textContent = "—";
         $("remaining").classList.remove("hot");
@@ -234,16 +486,27 @@
         $("remaining").textContent = String(s.remaining_count);
         $("remaining").classList.toggle("hot", s.remaining_count > 0 && s.state === "running");
       }
-      setLamp(s.brain || "");
-      setAineko(s.state === "running");
+      setLamp(s.brain || "", s.updated_at);
+      setAineko(s.state || "idle");
       if (s.last_check && s.last_check.command) {
         $("check").textContent = "$ " + s.last_check.command + "\nexit " + s.last_check.exit_code +
           "\n" + (s.last_check.output || "");
       }
       if (s.summary) $("summary").textContent = s.summary;
-      $("error").textContent = s.error || "";
+      const err = $("error");
+      err.textContent = s.error || "";
+      err.classList.toggle("dirty", /uncommitted|dirty/i.test(s.error || ""));
       if (s.loopscope_url) $("loopscope").href = s.loopscope_url;
       $("run").disabled = !selected || s.state === "running";
+      $("halt").disabled = s.state !== "running" || !!s.halt_requested;
+      if (s.state === "running" && s.halt_requested) {
+        $("halt").textContent = "HALTING AFTER TURN " + (s.turn || "") + "…";
+      } else {
+        $("halt").textContent = "HALT AFTER TURN";
+      }
+      renderBrief(s);
+      renderTurns(s);
+      tickClock(s);
     }
 
     $("run").addEventListener("click", async () => {
@@ -253,8 +516,40 @@
       const r = await fetch("/api/run", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({path: selected, mock: $("mock").checked, brief_size: Number($("brief-size").value)})
+        body: JSON.stringify({
+          path: selected,
+          mock: $("mock").checked,
+          brief_size: Number($("brief-size").value),
+          allow_dirty: $("allow-dirty").checked
+        })
       });
+      const data = await r.json();
+      if (!r.ok) $("error").textContent = data.error || r.statusText;
+    });
+    $("dry").addEventListener("click", async () => {
+      if (!selected) return;
+      const r = await fetch("/api/run", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          path: selected,
+          mock: $("mock").checked,
+          brief_size: Number($("brief-size").value),
+          dry_run: true,
+          allow_dirty: $("allow-dirty").checked
+        })
+      });
+      const data = await r.json();
+      if (!r.ok) { $("error").textContent = data.error || r.statusText; return; }
+      const ups = ((data.brief || {}).upgrades) || [];
+      $("summary").textContent = ups.map(u =>
+        (u.void ? "- [void: " + u.void_reason + "] " : "- [ ] ") + "#" + u.id + " " + u.title +
+        "\n  check: " + u.check_command + "\n  paths: " + (u.paths || []).join(", ")
+      ).join("\n");
+    });
+    $("halt").addEventListener("click", async () => {
+      if (!confirm("Halt after the current turn? Summary and ledger still land.")) return;
+      const r = await fetch("/api/halt", {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"});
       const data = await r.json();
       if (!r.ok) $("error").textContent = data.error || r.statusText;
     });
@@ -262,13 +557,16 @@
     $("deprecated").addEventListener("change", loadRepos);
 
     fetch("/api/config").then(r => r.json()).then(c => {
+      cfg = Object.assign(cfg, c);
       if (c.mock) $("mock").checked = true;
       if (c.brief_size) $("brief-size").value = String(c.brief_size);
       if (c.loopscope_url) $("loopscope").href = c.loopscope_url;
+      if (c.include_deprecated) $("deprecated").checked = true;
     }).catch(() => {});
     loadRepos();
     loadStatus();
     setInterval(loadStatus, 800);
+    setInterval(() => { if (lastStatus) tickClock(lastStatus); }, 1000);
   </script>
 </body>
 </html>

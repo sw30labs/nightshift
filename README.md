@@ -111,7 +111,12 @@ Defaults to `http://127.0.0.1:43171`. Lists git repos under `NIGHTSHIFT_ROOTS` (
 nightshift list
 nightshift run /path/to/repo
 nightshift run /path/to/repo --mock --brief-size 4
-nightshift status
+nightshift run /path/to/repo --dry-run          # freeze a brief, write nothing
+nightshift run /path/to/repo --allow-dirty      # keep your WIP out of the night
+nightshift status                               # human block; --json for the full dict
+nightshift morning /path/to/repo                # 7am read + land commands
+nightshift turns /path/to/repo                  # per-turn tape (LoopScope is the movie)
+nightshift halt                                 # stop after the current turn
 nightshift serve --host 127.0.0.1 --port 43171
 ```
 
@@ -121,13 +126,13 @@ nightshift serve --host 127.0.0.1 --port 43171
 
 Minute 0, critic only (no writer, no project-body writes):
 
-1. Create and checkout `night/YYYY-MM-DD` (append `-HHMM` if that name exists) from **current HEAD**. It does not reset to `main`.
-2. Read tree, tests, README, recent git log, and a ledger excerpt.
+1. Pre-flight (clean tree, `halt_at` is HH:MM, both brains answer `/models` unless `--mock`). Freeze the brief against **current HEAD** (the base). Then create and checkout `night/YYYY-MM-DD` (append `-HHMM` if that name exists). It does not reset to `main`. A freeze failure leaves you on the base; no orphan branch.
+2. Read tree, tests, README, recent git log, and a ledger excerpt. The writer snapshot is **job-first**: the current job's `paths[]` are shown in full under `## job file` before the 120k cut.
 3. Emit a **frozen brief**: 2–5 upgrades (`NIGHTSHIFT_BRIEF_SIZE`, CLI `--brief-size`, or deck JOBS).
 Each must be checkable by a host command. If the repo has no tests, one item may be adding a smoke test that fails then making it pass.
 4. Persist `.nightshift/brief.json` on the night branch. After freeze the writer cannot add extra upgrades. The critic cannot quietly expand scope at 3am.
-Duplicates of ledger entries with the same check plus paths and `attempted=True` are **void** (`duplicate_of_history`). `remaining_count` = not done and not void. Void shrinks; freeze cannot grow.
-5. Job lock: each turn works the first remaining item. The critic `upgrade_id` is ignored.
+Duplicates of ledger entries with the same check plus paths and `attempted=True` are **void** (`duplicate_of_history`). A prior attempt that did not land voids as `failed_before:<night>`. `remaining_count` = not done and not void. Void shrinks; freeze cannot grow.
+5. Job lock: each turn works the first remaining item with turn budget left (`NIGHTSHIFT_JOB_TURNS`, default 4); budgets rotate until remaining is 0, the clock, or max_turns. The critic `upgrade_id` is ignored.
 
 Then Ralph until `remaining_count == 0` or clock halt:
 
@@ -181,14 +186,19 @@ The mock provider implements the same chat shape as the live HTTP clients. Unit 
 ## Safety
 
 - Target must be a git work tree. Always branch first; never commit to `main`/`master`.
+- Refuse a dirty tree, a merge/rebase in progress, and detached HEAD (or pass `--allow-dirty` / ALLOW DIRTY, which keeps your WIP out of commits and voids jobs whose `paths[]` intersect it).
 - Refuse `/` and `$HOME`. Refuse Nightshift's own repo unless you explicitly selected it.
 - Cap turns (default 20) and wall clock (halt-at).
 - Writer tools: edit or create inside the target only. Critic has no write tool.
 - Snapshot is gitignore-aware and never reads `.env`, keys, or credential files.
 - A blocked secret write is skipped and recorded, not a dead night. Secret rotation is a human job.
 - Writer HTTP timeout defaults to 600s; a timeout is recorded and retried next turn, not a dead night.
-- Host checks run in the target repo. Pytest CI addopts (`--cov`, …) are stripped so a missing pytest-cov cannot kill the check.
+- Host checks run in the target repo under the resolved interpreter (override / `.venv` / `environment.yml` / conda env named after the repo directory / Nightshift's own Python). Pytest CI addopts (`--cov`, …) are stripped so a missing pytest-cov cannot kill the check.
 - No `git push` unless `--push`.
+- HALT AFTER TURN (`nightshift halt` / deck button) finishes the current turn, then writes summary + ledger. Ctrl-C does not.
+- LoopScope is the movie. `nightshift turns` is the transcript (`.nightshift/turns.jsonl` on the night branch).
+
+Host python precedence: `NIGHTSHIFT_TARGET_PYTHON` or `.nightshift/host.json` `{"python": …}`, then `.venv`/`venv`, then `environment.yml` `name:`, then a conda env whose directory name equals the repo directory, then Nightshift's own interpreter. The source is printed on `run` / `--dry-run` and in the morning summary.
 
 ## Tests
 
@@ -203,14 +213,15 @@ Fixture path: failing tests, then patches, then real pytest, then summary.md, th
 
 ```
 src/nightshift/
-  cli.py         list / run / status / serve
+  cli.py         list / run / status / serve / morning / turns / halt
   deck.py        stdlib HTTP command deck
   runner.py      overnight contract
   graph.py       LangGraph cycle plus snapshot / revert
   llm.py         OpenAI-compat clients, mock provider, writer, critic
-  host.py        real check commands
+  host.py        real check commands + interpreter resolution
   gitops.py      branch, commit, revert (never force)
   ledger.py      prior-night memory; void duplicate_of_history
+  summary.py     morning markdown / terminal view
   observe.py     LoopScope hook plus JSONL fallback
 ```
 

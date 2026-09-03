@@ -12,11 +12,12 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from .config import Settings
-from .models import BRIEF_SIZE_MAX, BRIEF_SIZE_MIN, FrozenBriefError
+from .models import BRIEF_SIZE_MAX, BRIEF_SIZE_MIN, FrozenBriefError, SafetyError
 from .demo import seed_widget
 from .repos import find_repos
-from .runner import run_night
-from .status import StatusBoard
+from .runner import dry_run_brief, run_night
+from .safety import assert_clean_tree, assert_safe_target
+from .status import StatusBoard, request_halt
 
 
 def _html() -> bytes:
@@ -57,6 +58,12 @@ class DeckState:
                     "Select a repository and press Run to start again."
                 ),
             )
+        requested = False
+        if status.state == "running" and status.runner_pid:
+            path = self.settings.state_dir() / "halt.request"
+            requested = path.is_file()
+        if status.halt_requested != requested:
+            status = self.board.update(halt_requested=requested)
         return status
 
     def snapshot(self) -> dict[str, Any]:
@@ -77,13 +84,15 @@ class DeckState:
             )
         ]
 
-    def start_run(self, path: str, mock: bool | None, brief_size: int | None = None) -> dict[str, Any]:
-        from .models import clamp_brief_size
-
-        size = clamp_brief_size(
-            brief_size if brief_size is not None else self.settings.brief_size
-        )
-        settings = Settings(
+    def _copy_settings(
+        self,
+        *,
+        mock: bool | None,
+        brief_size: int,
+        allow_dirty: bool,
+        dry_run: bool,
+    ) -> Settings:
+        return Settings(
             writer_base_url=self.settings.writer_base_url,
             writer_model=self.settings.writer_model,
             critic_base_url=self.settings.critic_base_url,
@@ -102,23 +111,50 @@ class DeckState:
             writer_timeout=self.settings.writer_timeout,
             critic_timeout=self.settings.critic_timeout,
             stall_after=self.settings.stall_after,
-            brief_size=size,
+            brief_size=brief_size,
+            job_turns=self.settings.job_turns,
+            allow_dirty=allow_dirty,
+            dry_run=dry_run,
         )
 
-        def _go() -> None:
-            try:
-                run_night(Path(path), settings, explicit=True)
-            except Exception as exc:
-                self.board.update(
-                    state="error",
-                    runner_pid=None,
-                    error=str(exc),
-                    brain="",
-                )
+    def start_run(
+        self,
+        path: str,
+        mock: bool | None,
+        brief_size: int | None = None,
+        *,
+        allow_dirty: bool = False,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        from .models import clamp_brief_size
+
+        size = clamp_brief_size(
+            brief_size if brief_size is not None else self.settings.brief_size
+        )
+        settings = self._copy_settings(
+            mock=mock, brief_size=size, allow_dirty=allow_dirty, dry_run=dry_run
+        )
 
         with self._run_lock:
             if self._reconcile_status_locked().state == "running":
                 return {"ok": False, "error": "a shift is already running"}
+            target = assert_safe_target(Path(path), explicit=True)
+            if dry_run:
+                brief = dry_run_brief(target, settings, explicit=True)
+                return {"ok": True, "dry_run": True, "brief": brief.to_dict()}
+            assert_clean_tree(target, allow_dirty=allow_dirty)
+
+            def _go() -> None:
+                try:
+                    run_night(Path(path), settings, explicit=True)
+                except Exception as exc:
+                    self.board.update(
+                        state="error",
+                        runner_pid=None,
+                        error=str(exc),
+                        brain="",
+                    )
+
             self.board.update(
                 state="running",
                 runner_pid=os.getpid(),
@@ -129,6 +165,15 @@ class DeckState:
             self._thread = threading.Thread(target=_go, daemon=True)
             self._thread.start()
         return {"ok": True, "repo": path, "mock": settings.mock, "brief_size": size}
+
+    def request_halt(self) -> dict[str, Any]:
+        with self._run_lock:
+            status = self._reconcile_status_locked()
+            if status.state != "running" or not status.runner_pid:
+                return {"ok": False, "error": "no shift running"}
+            request_halt(self.settings.state_dir(), int(status.runner_pid))
+            self.board.update(halt_requested=True)
+            return {"ok": True, "after_turn": status.turn}
 
 
 def make_handler(deck: DeckState):
@@ -159,6 +204,7 @@ def make_handler(deck: DeckState):
             if parsed.path == "/api/repos":
                 qs = parse_qs(parsed.query)
                 include = (qs.get("include_deprecated") or ["0"])[0] in {"1", "true", "yes"}
+                include = include or deck.settings.include_deprecated
                 self._json(200, {"repos": deck.repos(include)})
                 return
             if parsed.path == "/api/status":
@@ -175,6 +221,11 @@ def make_handler(deck: DeckState):
                         "brief_size": deck.settings.brief_size,
                         "brief_size_min": BRIEF_SIZE_MIN,
                         "brief_size_max": BRIEF_SIZE_MAX,
+                        "max_turns": deck.settings.max_turns,
+                        "writer_timeout": deck.settings.writer_timeout,
+                        "critic_timeout": deck.settings.critic_timeout,
+                        "check_timeout": deck.settings.check_timeout,
+                        "include_deprecated": deck.settings.include_deprecated,
                     },
                 )
                 return
@@ -192,6 +243,10 @@ def make_handler(deck: DeckState):
                 payload = json.loads(raw.decode("utf-8") or "{}")
             except json.JSONDecodeError:
                 self._json(400, {"error": "invalid json"})
+                return
+            if parsed.path == "/api/halt":
+                result = deck.request_halt()
+                self._json(200 if result.get("ok") else 409, result)
                 return
             if parsed.path == "/api/run":
                 path = str(payload.get("path") or "").strip()
@@ -211,9 +266,14 @@ def make_handler(deck: DeckState):
                         path,
                         mock if isinstance(mock, bool) else None,
                         brief_size=brief_size,
+                        allow_dirty=bool(payload.get("allow_dirty")),
+                        dry_run=bool(payload.get("dry_run")),
                     )
                 except FrozenBriefError as exc:
                     self._json(400, {"error": str(exc)})
+                    return
+                except SafetyError as exc:
+                    self._json(409, {"ok": False, "error": str(exc)})
                     return
                 self._json(200 if result.get("ok") else 409, result)
                 return

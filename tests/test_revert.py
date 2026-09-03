@@ -37,3 +37,14 @@ def test_revert_paths_skips_parent_escape(fixture_repo):
     reverted = revert_paths(fixture_repo, ["../outside.txt"])
     assert any(x.startswith("SKIP (outside repo):") for x in reverted)
     assert outside.read_text(encoding="utf-8") == "secret\n"
+
+
+def test_revert_untracked_file_in_new_directory(fixture_repo):
+    target = fixture_repo / "tests" / "new" / "x.py"
+    target.parent.mkdir(parents=True)
+    write_project_file(fixture_repo, "tests/new/x.py", "x = 1\n", role="writer")
+    changed = changed_paths(fixture_repo)
+    assert "tests/new/x.py" in changed
+    reverted = revert_paths(fixture_repo, ["tests/new/x.py"])
+    assert "tests/new/x.py" in reverted
+    assert not target.exists()

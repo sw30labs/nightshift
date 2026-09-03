@@ -61,13 +61,33 @@ class Upgrade:
             id=int(data["id"]),
             title=str(data["title"]),
             check_command=str(data["check_command"]),
-            paths=[str(p) for p in data.get("paths") or []],
+            paths=coerce_paths(data.get("paths")),
             done=bool(data.get("done", False)),
             note=str(data.get("note") or ""),
             void=bool(data.get("void", False)),
             void_reason=str(data.get("void_reason") or ""),
             void_by=int(data.get("void_by") or 0),
         )
+
+
+def coerce_paths(raw: Any) -> list[str]:
+    if raw is None or raw == "":
+        return []
+    if isinstance(raw, str):
+        return [raw]
+    if isinstance(raw, (list, tuple)):
+        return [str(p) for p in raw if str(p).strip()]
+    raise FrozenBriefError("paths must be a list of strings")
+
+
+def coerce_check_command(raw: Any) -> str:
+    if raw is None:
+        return ""
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, (list, tuple)):
+        return " ".join(str(x) for x in raw)
+    return str(raw)
 
 
 @dataclass
@@ -77,6 +97,8 @@ class Brief:
     created_at: str = ""
     repo: str = ""
     branch: str = ""
+    base_ref: str = ""
+    base_sha: str = ""
 
     def __post_init__(self) -> None:
         if self.frozen:
@@ -132,7 +154,7 @@ class Brief:
                 u.done = False
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "frozen": True,
             "created_at": self.created_at,
             "repo": self.repo,
@@ -141,6 +163,11 @@ class Brief:
             "void_count": self.void_count,
             "upgrades": [u.to_dict() for u in self.upgrades],
         }
+        if self.base_ref:
+            payload["base_ref"] = self.base_ref
+        if self.base_sha:
+            payload["base_sha"] = self.base_sha
+        return payload
 
     @classmethod
     def freeze(
@@ -150,6 +177,8 @@ class Brief:
         repo: str = "",
         branch: str = "",
         created_at: str | None = None,
+        base_ref: str = "",
+        base_sha: str = "",
     ) -> "Brief":
         clamp_brief_size(len(upgrades))
         stamped = created_at or datetime.now(timezone.utc).isoformat()
@@ -174,6 +203,8 @@ class Brief:
             created_at=stamped,
             repo=repo,
             branch=branch,
+            base_ref=base_ref,
+            base_sha=base_sha,
         )
 
     @classmethod
@@ -201,8 +232,10 @@ class Brief:
                 Upgrade(
                     id=i,
                     title=str(row.get("title") or f"upgrade {i}"),
-                    check_command=str(row.get("check_command") or row.get("check") or ""),
-                    paths=[str(p) for p in (row.get("paths") or [])],
+                    check_command=coerce_check_command(
+                        row.get("check_command") or row.get("check") or ""
+                    ),
+                    paths=coerce_paths(row.get("paths")),
                     done=False,
                     note=str(row.get("note") or ""),
                 )
@@ -223,6 +256,8 @@ class Brief:
             created_at=str(data.get("created_at") or ""),
             repo=str(data.get("repo") or ""),
             branch=str(data.get("branch") or ""),
+            base_ref=str(data.get("base_ref") or ""),
+            base_sha=str(data.get("base_sha") or ""),
         )
 
 

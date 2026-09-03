@@ -108,6 +108,8 @@ def start(
 ):
     """One hook. Same shape as loopscope.start()."""
     global _jsonl_path
+    with _fallback_lock:
+        _fallback_events.clear()
     if jsonl:
         _jsonl_path = Path(jsonl)
         _jsonl_path.parent.mkdir(parents=True, exist_ok=True)
@@ -201,6 +203,9 @@ class FallbackRalphLoop:
         self.stall_after = stall_after
         self.roles = roles or {}
         self._done = False
+        self.reason = ""
+        self._last_signal: float | None = None
+        self._stall = 0
 
     def attach_graph(self, app, config=None):
         merged = dict(config or {})
@@ -212,20 +217,36 @@ class FallbackRalphLoop:
             if self._done:
                 break
             yield FallbackIteration(self, i)
+        if not self._done and not self.reason:
+            self.reason = "max_iters"
 
 
 class FallbackIteration:
     def __init__(self, loop: FallbackRalphLoop, index: int) -> None:
         self.loop = loop
         self.index = index
+        self.n = index + 1
         self._done_reason = None
 
     def signal(self, value: float, name: str = "signal") -> None:
         metric(name, float(value))
+        if name == "open_work":
+            current = float(value)
+            last = self.loop._last_signal
+            if last is not None and current >= last:
+                self.loop._stall += 1
+            else:
+                self.loop._stall = 0
+            self.loop._last_signal = current
+            if self.loop.stall_after and self.loop._stall >= self.loop.stall_after:
+                self.loop.reason = "stalled"
+                self.done("stalled")
 
     def done(self, reason: str = "converged") -> None:
         self._done_reason = reason
         self.loop._done = True
+        if reason == "stalled":
+            self.loop.reason = "stalled"
         log(reason, level="info")
 
     def note(self, text: str) -> None:

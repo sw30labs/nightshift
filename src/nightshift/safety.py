@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .models import SafetyError, normalize_rel
@@ -21,6 +22,35 @@ BLOCKED_WRITE_NAMES = frozenset(
 )
 BLOCKED_WRITE_SUFFIXES = frozenset({".pem", ".p12", ".key"})
 SNAPSHOT_OK_ENV_NAMES = frozenset({".env.example", ".env.sample", ".env.template"})
+
+JUNK_PARTS = frozenset(
+    {
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".tox",
+        "node_modules",
+        ".eggs",
+        "htmlcov",
+        ".DS_Store",
+    }
+)
+JUNK_SUFFIXES = frozenset({".pyc", ".pyo", ".egg-info", ".coverage"})
+NEVER_COMMIT_META = frozenset(
+    {
+        ".nightshift/events.jsonl",
+        ".nightshift/status.json",
+    }
+)
+IN_PROGRESS_NAMES = (
+    "MERGE_HEAD",
+    "CHERRY_PICK_HEAD",
+    "REVERT_HEAD",
+    "rebase-merge",
+    "rebase-apply",
+    "BISECT_LOG",
+)
 
 
 def resolve_repo(path: Path) -> Path:
@@ -54,6 +84,10 @@ def assert_safe_target(path: Path, *, explicit: bool) -> Path:
     return root
 
 
+def _has_git_part(parts: tuple[str, ...]) -> bool:
+    return any(part.lower() == ".git" for part in parts)
+
+
 def assert_inside_repo(repo: Path, rel: str) -> Path:
     repo_r = resolve_repo(repo)
     candidate = (repo_r / rel).resolve()
@@ -61,8 +95,8 @@ def assert_inside_repo(repo: Path, rel: str) -> Path:
         candidate.relative_to(repo_r)
     except ValueError as exc:
         raise SafetyError(f"path escapes the target repo: {rel}") from exc
-    parts = set(candidate.relative_to(repo_r).parts)
-    if ".git" in parts:
+    rel_parts = candidate.relative_to(repo_r).parts
+    if _has_git_part(rel_parts):
         raise SafetyError("writer may not touch .git/")
     if is_blocked_name(candidate.name):
         raise SafetyError(f"refusing to write {candidate.name}")
@@ -80,7 +114,33 @@ def is_blocked_name(name: str) -> bool:
 
 
 def is_blocked_rel(rel: str) -> bool:
-    return is_blocked_name(Path(normalize_rel(rel)).name)
+    norm = normalize_rel(rel)
+    if not norm:
+        return False
+    if _has_git_part(Path(norm).parts):
+        return True
+    return is_blocked_name(Path(norm).name)
+
+
+def is_junk(rel: str) -> bool:
+    """Build/cache/meta paths that must never be committed or reverted as gold-plating."""
+    norm = normalize_rel(rel)
+    if not norm:
+        return False
+    if norm in NEVER_COMMIT_META:
+        return True
+    if norm.startswith(".nightshift/history/"):
+        return True
+    parts = set(Path(norm).parts)
+    if parts & JUNK_PARTS:
+        return True
+    suffix = Path(norm).suffix.lower()
+    if suffix in JUNK_SUFFIXES:
+        return True
+    # .egg-info is often a directory name, not a suffix
+    if any(part.endswith(".egg-info") for part in Path(norm).parts):
+        return True
+    return False
 
 
 def git_visible_files(repo: Path) -> list[str] | None:
@@ -89,7 +149,16 @@ def git_visible_files(repo: Path) -> list[str] | None:
 
     try:
         proc = subprocess.run(
-            ["git", "-C", str(repo), "ls-files", "-co", "--exclude-standard"],
+            [
+                "git",
+                "-C",
+                str(repo),
+                "-c",
+                "core.quotepath=false",
+                "ls-files",
+                "-co",
+                "--exclude-standard",
+            ],
             capture_output=True,
             text=True,
             check=False,
@@ -146,3 +215,51 @@ def assert_job_path(rel: str, paths: list[str]) -> str:
     if not _inside_job_paths(norm, allowed):
         raise SafetyError(f"write outside job paths[]: {norm}")
     return norm
+
+
+@dataclass
+class TreeState:
+    dirty: list[str] = field(default_factory=list)
+    in_progress: str | None = None
+    detached: bool = False
+
+
+def tree_state(repo: Path) -> TreeState:
+    """Dirty / in-progress / detached HEAD, ignoring Nightshift meta and junk."""
+    from .gitops import changed_paths, git
+
+    abs_git = git(repo, "rev-parse", "--absolute-git-dir", check=False)
+    git_dir = Path(abs_git.stdout.strip()) if abs_git.returncode == 0 and abs_git.stdout.strip() else repo / ".git"
+    in_progress: str | None = None
+    for name in IN_PROGRESS_NAMES:
+        if (git_dir / name).exists():
+            in_progress = name
+            break
+    detached = git(repo, "symbolic-ref", "-q", "HEAD", check=False).returncode != 0
+    dirty: list[str] = []
+    for rel in changed_paths(repo):
+        if is_meta_path(rel) or is_junk(rel):
+            continue
+        dirty.append(rel)
+    return TreeState(dirty=dirty, in_progress=in_progress, detached=detached)
+
+
+def assert_clean_tree(repo: Path, *, allow_dirty: bool = False) -> TreeState:
+    ts = tree_state(repo)
+    if ts.in_progress:
+        raise SafetyError(
+            f"merge/rebase in progress ({ts.in_progress}); finish or abort it first"
+        )
+    if ts.detached:
+        from .gitops import rev_parse
+
+        sha = rev_parse(repo, "HEAD")[:7]
+        raise SafetyError(f"detached HEAD at {sha}; checkout a branch first")
+    if ts.dirty and not allow_dirty:
+        shown = ", ".join(ts.dirty[:10])
+        extra = "" if len(ts.dirty) <= 10 else ", …"
+        raise SafetyError(
+            f"working tree has {len(ts.dirty)} uncommitted changes "
+            f"({shown}{extra}); commit or stash first, or pass --allow-dirty"
+        )
+    return ts

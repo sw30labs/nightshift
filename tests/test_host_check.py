@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from nightshift.graph import apply_host_truth
-from nightshift.host import run_check
+from nightshift.host import parse_pytest, run_check
 from nightshift.models import Brief, Upgrade
 
 
@@ -51,3 +51,43 @@ def test_apply_host_truth_marks_current_job_when_paths_changed():
     apply_host_truth(brief, [ok, other], job_id=1, night_changed={"a.py"})
     assert brief.upgrades[0].done is True
     assert brief.upgrades[1].done is False
+
+
+def test_parse_pytest_sets_and_run_check_emits_node_id(fixture_repo):
+    sample = """
+PASSED tests/test_widget.py::test_add
+FAILED tests/test_widget.py::test_greet - AssertionError: boom
+ERROR tests/test_foo.py::test_x - OSError: no
+===================== 1 failed, 1 passed, 1 error in 0.10s =====================
+"""
+    parsed = parse_pytest(sample)
+    assert parsed["passed"] == {"tests/test_widget.py::test_add"}
+    assert parsed["failed"] == {"tests/test_widget.py::test_greet"}
+    assert parsed["errors"] == {"tests/test_foo.py::test_x"}
+    row = run_check(
+        fixture_repo,
+        Upgrade(
+            1,
+            "greet",
+            "python -m pytest tests/test_widget.py::test_greet -q --rootdir=.",
+            ["widget.py"],
+        ),
+        timeout=30,
+    )
+    assert row.ok is False
+    assert "FAILED tests/test_widget.py::test_greet" in row.output or "test_greet" in row.output
+
+
+def test_run_check_timeout_and_bad_quotes(tmp_path):
+    repo = tmp_path / "p"
+    repo.mkdir()
+    row = run_check(
+        repo,
+        Upgrade(1, "sleep", "python -c \"import time; time.sleep(30)\"", ["x"]),
+        timeout=1,
+    )
+    assert row.ok is False
+    assert row.exit_code == -1
+    assert "timeout" in row.output
+    row = run_check(repo, Upgrade(1, "bad", "echo 'unterminated", ["x"]), timeout=5)
+    assert row.ok is False

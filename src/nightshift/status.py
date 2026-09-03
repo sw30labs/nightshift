@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+HALT_REQUEST = "halt.request"
 
 
 @dataclass
@@ -27,6 +30,18 @@ class RunStatus:
     mock: bool = False
     updated_at: str = ""
     refused: list[str] = field(default_factory=list)
+    brief: dict[str, Any] = field(default_factory=dict)
+    job_upgrade_id: int = 0
+    job: str = ""
+    checks: dict[str, Any] = field(default_factory=dict)
+    fail_streak: dict[str, Any] = field(default_factory=dict)
+    turns: list[dict[str, Any]] = field(default_factory=list)
+    started_at: float = 0.0
+    deadline: float = 0.0
+    max_turns: int = 0
+    host_python: str = ""
+    main_untouched: bool = True
+    halt_requested: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -69,3 +84,70 @@ class StatusBoard:
 
     def snapshot(self) -> dict[str, Any]:
         return self.read().to_dict()
+
+
+def request_halt(home: Path, pid: int) -> Path:
+    path = Path(home) / HALT_REQUEST
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "pid": int(pid),
+                "requested_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def clear_halt(home: Path) -> None:
+    path = Path(home) / HALT_REQUEST
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
+    except OSError:
+        return
+
+
+def halt_requested(home: Path, pid: int) -> bool:
+    path = Path(home) / HALT_REQUEST
+    if not path.is_file():
+        return False
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        stored = int(data.get("pid") or 0)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        return False
+    if stored != int(pid):
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        return False
+    try:
+        path.unlink()
+    except OSError:
+        pass
+    return True
+
+
+def live_owner(runner_pid: int | None, *, self_pid: int | None = None) -> bool:
+    """True if runner_pid looks like a live Nightshift process (not this deck)."""
+    if runner_pid is None:
+        return False
+    me = os.getpid() if self_pid is None else self_pid
+    if runner_pid == me:
+        return False
+    try:
+        os.kill(runner_pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return False
+    return True

@@ -58,3 +58,12 @@ def test_commit_paths_does_not_force_add_unscoped_ignored(fixture_repo):
     names = git(fixture_repo, "ls-files", "--", "secret.bin", "ok.txt").stdout.split()
     assert "ok.txt" in names
     assert "secret.bin" not in names
+
+
+def test_commit_paths_stages_deletion(fixture_repo):
+    checkout_night_branch(fixture_repo, datetime(2026, 9, 2, 12, 42))
+    git(fixture_repo, "rm", "--", "README.md")
+    sha = commit_paths(fixture_repo, "nightshift: drop readme", None)
+    assert sha
+    names = git(fixture_repo, "ls-files", "--", "README.md").stdout.strip()
+    assert names == ""

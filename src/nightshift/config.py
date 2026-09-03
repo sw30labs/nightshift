@@ -62,7 +62,6 @@ class Settings:
     open_browser: bool = False
     loopscope_port: int = 7788
     deck_host: str = "127.0.0.1"
-    deck_port: int = 43171
     home: Path = field(
         default_factory=lambda: Path(
             os.environ.get("NIGHTSHIFT_HOME", Path.home() / ".nightshift")
@@ -79,6 +78,17 @@ class Settings:
     )
     brief_size: int = field(
         default_factory=lambda: int(os.environ.get("NIGHTSHIFT_BRIEF_SIZE", "2"))
+    )
+    job_turns: int = field(
+        default_factory=lambda: int(os.environ.get("NIGHTSHIFT_JOB_TURNS", "4"))
+    )
+    allow_dirty: bool = field(
+        default_factory=lambda: os.environ.get("NIGHTSHIFT_ALLOW_DIRTY", "").strip()
+        in {"1", "true", "yes", "on"}
+    )
+    dry_run: bool = False
+    deck_port: int = field(
+        default_factory=lambda: int(os.environ.get("NIGHTSHIFT_PORT", "43171"))
     )
 
     def state_dir(self) -> Path:
@@ -99,6 +109,9 @@ class Settings:
         observe: bool = True,
         host: str | None = None,
         port: int | None = None,
+        allow_dirty: bool = False,
+        dry_run: bool = False,
+        job_turns: int | None = None,
     ) -> "Settings":
         s = cls()
         if roots:
@@ -118,7 +131,14 @@ class Settings:
             s.deck_host = host
         if port is not None:
             s.deck_port = port
+        if allow_dirty:
+            s.allow_dirty = True
+        s.dry_run = bool(dry_run)
+        if job_turns is not None:
+            s.job_turns = int(job_turns)
         from .models import clamp_brief_size
 
         s.brief_size = clamp_brief_size(s.brief_size)
+        if s.job_turns < 1:
+            s.job_turns = 1
         return s

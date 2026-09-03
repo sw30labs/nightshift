@@ -105,6 +105,11 @@ def _quick_status(repo: Path) -> tuple[str, bool]:
             text=True,
             check=False,
         ).stdout
-        return branch, bool(porcelain.strip())
+        dirty_lines = [
+            ln
+            for ln in porcelain.splitlines()
+            if ln.strip() and ".nightshift/" not in ln
+        ]
+        return branch, bool(dirty_lines)
     except OSError:
         return "?", False

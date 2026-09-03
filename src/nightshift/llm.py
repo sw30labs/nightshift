@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import difflib
 import json
+import os
 import re
 import sys
 import urllib.error
@@ -15,6 +17,7 @@ from .models import BRIEF_SIZE_DEFAULT, Brief, FrozenBriefError, SafetyError, Up
 from .safety import assert_inside_repo, assert_job_path, is_meta_path
 
 MAX_FULL_FILE_CHARS = 8_000
+WRITER_SNAPSHOT_CHARS = int(os.environ.get("NIGHTSHIFT_WRITER_SNAPSHOT_CHARS", "120000"))
 
 
 class ChatClient(Protocol):
@@ -65,6 +68,52 @@ def completion_text(body: dict[str, Any]) -> str:
     return ""
 
 
+def _rows(raw: Any) -> list[Any]:
+    if raw is None:
+        return []
+    if isinstance(raw, dict):
+        return [raw]
+    if isinstance(raw, list):
+        return raw
+    return []
+
+
+def _as_str_list(raw: Any) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        return [raw] if raw.strip() else []
+    if isinstance(raw, list):
+        return [str(x) for x in raw if x is not None and str(x).strip()]
+    return [str(raw)]
+
+
+def _as_id_list(raw: Any) -> list[int]:
+    if raw is None:
+        return []
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        raw = [raw]
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return []
+    out: list[int] = []
+    for x in raw:
+        if x is None or isinstance(x, bool):
+            continue
+        if isinstance(x, int):
+            out.append(x)
+            continue
+        if isinstance(x, float):
+            out.append(int(x))
+            continue
+        s = str(x).strip()
+        m = re.search(r"\d+", s)
+        if m:
+            out.append(int(m.group(0)))
+    return out
+
+
 class OpenAICompatClient:
     """POST {base}/chat/completions. oMLX expects Bearer test; Spark vLLM ignores it."""
 
@@ -82,6 +131,7 @@ class OpenAICompatClient:
         self.model = model
         self.api_key = api_key or "test"
         self.timeout = timeout
+        self.last_finish_reason = ""
 
     def chat(
         self,
@@ -114,7 +164,35 @@ class OpenAICompatClient:
             raise RuntimeError(
                 f"LLM HTTP failed ({self.model} @ {self.base_url}): {exc}"
             ) from exc
+        try:
+            self.last_finish_reason = str(body["choices"][0].get("finish_reason") or "")
+        except (KeyError, IndexError, TypeError, AttributeError):
+            self.last_finish_reason = ""
         return completion_text(body)
+
+
+def probe_models(base_url: str, api_key: str, *, timeout: float = 5) -> dict[str, Any]:
+    """GET {base}/models. Raises RuntimeError on transport failure."""
+    url = f"{base_url.rstrip('/')}/models"
+    req = urllib.request.Request(
+        url,
+        method="GET",
+        headers={"Authorization": f"Bearer {api_key or 'test'}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return {"data": [], "missing_ok": True}
+        raise RuntimeError(f"models probe HTTP {exc.code} at {url}: {exc}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"unreachable at {url}: {exc}") from exc
+    try:
+        body = json.loads(raw) if raw.strip() else {}
+    except json.JSONDecodeError:
+        return {"data": []}
+    return body if isinstance(body, dict) else {"data": []}
 
 
 def write_project_file(repo: Path, rel: str, content: str, *, role: str) -> Path:
@@ -140,10 +218,21 @@ def apply_patch_hunk(repo: Path, rel: str, old: str, new: str, *, role: str) -> 
                 f"patch target missing: {rel}; files[] content {len(new)} chars"
             )
         return write_project_file(repo, rel, new, role=role)
-    text = path.read_text(encoding="utf-8")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise SafetyError(f"cannot read {rel} as utf-8: {exc}") from exc
+    if len((old or "").strip()) < 3:
+        raise SafetyError("patch old is degenerate; copy at least one full line verbatim")
     n = text.count(old)
     if n == 0:
-        raise SafetyError(f"patch hunk not found in {rel}")
+        first = (old.splitlines() or [old])[0]
+        close = difflib.get_close_matches(first, text.splitlines(), n=1, cutoff=0.6)
+        extra = ""
+        if close:
+            line_no = text.splitlines().index(close[0]) + 1
+            extra = f"; closest line {line_no}: {close[0]!r}"
+        raise SafetyError(f"patch hunk not found in {rel}{extra}")
     if n > 1:
         raise SafetyError(f"patch hunk is not unique in {rel} ({n} matches)")
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
@@ -236,6 +325,7 @@ class MockChatClient:
     role: str
     repo: Path
     mock: bool = True
+    last_finish_reason: str = ""
 
     def chat(
         self,
@@ -259,7 +349,10 @@ class MockChatClient:
         job = user
         if "Current job:" in user:
             job = user.split("Current job:", 1)[1]
-            job = job.split("Repo snapshot", 1)[0]
+            if "Current job paths" in job:
+                job = job.split("Current job paths", 1)[0]
+            elif "Repo snapshot" in job:
+                job = job.split("Repo snapshot", 1)[0]
         low = job.lower()
         files: list[dict[str, str]] = []
         if "test_add" in low or "make test_add" in low or "add(1" in low:
@@ -302,7 +395,8 @@ You are the only role allowed to edit files. You have no network.
 Do the one job in the user message. Do not add upgrades. The brief is frozen.
 Return JSON only:
 {"patches": [{"path": "README.md", "old": "exact unique substring", "new": "replacement"}], "files": [{"path": "new.py", "content": "full contents"}], "message": "short commit subject"}
-Prefer patches for edits to existing files. Never dump a whole README, QUICKSTART, or any file over ~80 lines in files[].
+Patch only files shown in full under `## job file`. A job path with no `## job file` block does not exist: create it with files[]. For an existing job path under 8000 chars prefer files[] with the full new content (always for tests/); patches[] for larger files, and `old` must be one or more complete lines copied verbatim.
+Prefer patches for edits to existing large files. Never dump a whole README, QUICKSTART, or any file over ~80 lines in files[].
 files[] is for NEW or tiny files only. If the path does not already exist, you MUST use files[] with the full contents. Never patches[] a missing path.
 old must appear exactly once in the current file.
 Edit only the current job's paths[]. Host refuses any other project file. Empty paths[] means write nothing.
@@ -339,6 +433,7 @@ CRITIC_BRIEF_SYSTEM = critic_brief_system(3)
 
 CRITIC_JOB_SYSTEM = """You are the Nightshift critic. Write one line: the next remaining brief item as a job for the writer.
 Write the job for the single upgrade in the user message only. Do not pick another id.
+If last_attempt is present, the job is the single concrete fix that turns the check green: name the failing test and the error.
 Return JSON: {"upgrade_id": <that id>, "job": "one line"}
 No file writes. Tell the writer to edit only that upgrade's paths[]. Never instruct writes outside those paths.
 Never tell the writer to edit .env, keys, tokens, or credentials.
@@ -354,6 +449,33 @@ Revert files outside the current job's paths[] (gold-plating or side effects).
 """
 
 
+def _feedback_block(feedback: dict[str, Any] | None, locked_id: int) -> str:
+    if not feedback or int(feedback.get("upgrade_id") or 0) != int(locked_id):
+        return ""
+    lines = [f"## Previous attempt (turn {feedback.get('turn') or '?'}) failed"]
+    cmd = str(feedback.get("command") or "")
+    if cmd:
+        lines.append(f"$ {cmd}")
+    if "exit_code" in feedback:
+        lines.append(f"exit={feedback.get('exit_code')}")
+    output = str(feedback.get("output") or "").strip()
+    if output:
+        lines.append(output)
+    refused = [str(x) for x in (feedback.get("writer_refused") or []) if str(x).strip()]
+    if refused:
+        lines.append("## Your hunks that did not apply")
+        for note in refused:
+            lines.append(f"- {note}")
+    notes = [str(x) for x in (feedback.get("critic_notes") or []) if str(x).strip()]
+    compile_errors = [str(x) for x in (feedback.get("compile_errors") or []) if str(x).strip()]
+    if notes or compile_errors:
+        lines.append("## Critic notes")
+        for note in compile_errors + notes:
+            lines.append(f"- {note}")
+    lines.append("Fix this failure in the files shown below; do not start over.")
+    return "\n".join(lines) + "\n\n"
+
+
 class Writer:
     """The only brain that may edit the project body."""
 
@@ -361,11 +483,23 @@ class Writer:
         self.client = client
         self.repo = repo
 
-    def apply_job(self, job: str, brief: Brief, snapshot: str) -> WriterResult:
+    def apply_job(
+        self,
+        job: str,
+        brief: Brief,
+        snapshot: str,
+        *,
+        job_upgrade_id: int = 0,
+        feedback: dict[str, Any] | None = None,
+    ) -> WriterResult:
         if getattr(self.client, "repo", None) is not None:
             self.client.repo = self.repo  # type: ignore[attr-defined]
         missing: list[str] = []
-        locked = brief.remaining()[0] if brief.remaining() else None
+        locked = None
+        if int(job_upgrade_id or 0):
+            locked = next((u for u in brief.upgrades if u.id == int(job_upgrade_id)), None)
+        if locked is None:
+            locked = brief.remaining()[0] if brief.remaining() else None
         job_paths = list(locked.paths) if locked is not None else []
         if locked is not None:
             seen: set[str] = set()
@@ -383,30 +517,43 @@ class Writer:
                 "These job paths do not exist yet. Create them with files[] "
                 f"(full contents), never patches[]: {joined}\n\n"
             )
+        fb = _feedback_block(feedback, locked.id if locked is not None else 0)
         user = (
             f"Frozen brief (do not add extra upgrades):\n{json.dumps(brief.to_dict(), indent=2)}\n\n"
             f"Current job:\n{job}\n\n"
             f"Current job paths[] (writes outside these are refused): {json.dumps(job_paths)}\n\n"
+            f"{fb}"
             f"{miss_note}"
-            f"Repo snapshot (truncated):\n{snapshot[:120_000]}\n"
+            f"Repo snapshot (truncated):\n{snapshot[:WRITER_SNAPSHOT_CHARS]}\n"
         )
         raw = ""
         payload: dict[str, Any] | None = None
+        truncated = False
         for attempt in range(3):
             try:
                 messages = [
                     {"role": "system", "content": WRITER_SYSTEM},
                     {"role": "user", "content": user},
                 ]
-                if attempt:
+                max_tokens = 16384 if truncated else 8192
+                if attempt and truncated:
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": "Reply was cut off at the token limit; send fewer, smaller hunks",
+                        }
+                    )
+                elif attempt:
                     messages.append(
                         {
                             "role": "user",
                             "content": "Previous reply was not a JSON object. Return JSON only.",
                         }
                     )
-                raw = self.client.chat(messages)
-            except (TimeoutError, urllib.error.URLError) as exc:
+                raw = self.client.chat(messages, max_tokens=max_tokens)
+                finish = str(getattr(self.client, "last_finish_reason", "") or "")
+                truncated = finish == "length"
+            except (TimeoutError, urllib.error.URLError, RuntimeError, OSError) as exc:
                 return WriterResult(
                     written=[],
                     message="timeout",
@@ -418,8 +565,17 @@ class Writer:
                 break
             except (ValueError, json.JSONDecodeError):
                 payload = None
+                if truncated:
+                    continue
                 continue
         if payload is None:
+            if truncated:
+                return WriterResult(
+                    written=[],
+                    message="truncated",
+                    raw=raw,
+                    refused=["writer reply truncated (finish_reason=length); will retry"],
+                )
             snippet = re.sub(r"\s+", " ", raw or "")[:240]
             return WriterResult(
                 written=[],
@@ -432,7 +588,8 @@ class Writer:
         payload.pop("brief", None)
         written: list[str] = []
         refused: list[str] = []
-        for row in payload.get("patches") or []:
+        seen_hunks: set[tuple[str, str, str]] = set()
+        for row in _rows(payload.get("patches")):
             if not isinstance(row, dict):
                 continue
             rel = str(row.get("path") or "").strip()
@@ -440,16 +597,23 @@ class Writer:
             new = row.get("new")
             if not rel or old is None or new is None:
                 continue
+            key = (rel, str(old), str(new))
+            if key in seen_hunks:
+                continue
+            seen_hunks.add(key)
             try:
                 assert_job_path(rel, job_paths)
                 apply_patch_hunk(self.repo, rel, str(old), str(new), role="writer")
             except SafetyError as exc:
                 refused.append(f"{rel}: {exc}")
                 continue
+            except (OSError, UnicodeError) as exc:
+                refused.append(f"{rel}: {exc}")
+                continue
             norm = rel.replace(chr(92), "/")
             if norm not in written:
                 written.append(norm)
-        for row in payload.get("files") or []:
+        for row in _rows(payload.get("files")):
             if not isinstance(row, dict):
                 continue
             rel = str(row.get("path") or "").strip()
@@ -468,6 +632,9 @@ class Writer:
                 assert_job_path(rel, job_paths)
                 write_project_file(self.repo, rel, body, role="writer")
             except SafetyError as exc:
+                refused.append(f"{rel}: {exc}")
+                continue
+            except (OSError, UnicodeError) as exc:
                 refused.append(f"{rel}: {exc}")
                 continue
             norm = rel.replace(chr(92), "/")
@@ -507,7 +674,10 @@ class Critic:
                         "content": "Previous reply was not a JSON object. Return JSON only.",
                     }
                 )
-            last_raw = self.client.chat(messages)
+            try:
+                last_raw = self.client.chat(messages)
+            except (TimeoutError, urllib.error.URLError, RuntimeError, OSError) as exc:
+                raise RuntimeError(f"critic freeze failed: {exc}") from exc
             try:
                 data = parse_json_object(last_raw)
             except (ValueError, json.JSONDecodeError) as exc:
@@ -524,66 +694,90 @@ class Critic:
             f"no JSON object in model output after 3 freeze attempts: {snippet!r}"
         ) from parse_err
 
-    def job_line(self, brief: Brief) -> tuple[int, str]:
+    def job_line(
+        self,
+        brief: Brief,
+        *,
+        upgrade_id: int | None = None,
+        feedback: dict[str, Any] | None = None,
+    ) -> tuple[int, str]:
         remaining = brief.remaining()
         if not remaining:
             return 0, ""
-        target = remaining[0]
+        if upgrade_id:
+            target = next((u for u in remaining if u.id == int(upgrade_id)), remaining[0])
+        else:
+            target = remaining[0]
         if getattr(self.client, "mock", False):
             return (
                 target.id,
                 f"{target.title} (upgrade {target.id}). Check: {target.check_command}",
             )
-        raw = self.client.chat(
-            [
-                {
-                    "role": "system",
-                    "content": (
-                        CRITIC_JOB_SYSTEM
-                        + f"\nWrite the job for upgrade_id {target.id} only."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": json.dumps({"upgrade": target.to_dict()}, indent=2),
-                },
-            ]
-        )
-        data = parse_json_object(raw)
-        job = str(data.get("job") or "").strip() or target.title
-        # Ignore critic upgrade_id; lock to remaining()[0] (void already excluded).
+        payload: dict[str, Any] = {"upgrade": target.to_dict()}
+        if feedback and int(feedback.get("upgrade_id") or 0) == target.id:
+            output = str(feedback.get("output") or "")
+            payload["last_attempt"] = {
+                "turn": feedback.get("turn"),
+                "exit_code": feedback.get("exit_code"),
+                "output_tail": output[-1200:],
+                "writer_refused": feedback.get("writer_refused") or [],
+                "critic_notes": feedback.get("critic_notes") or [],
+            }
+        try:
+            raw = self.client.chat(
+                [
+                    {
+                        "role": "system",
+                        "content": (
+                            CRITIC_JOB_SYSTEM
+                            + f"\nWrite the job for upgrade_id {target.id} only."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": json.dumps(payload, indent=2),
+                    },
+                ]
+            )
+            data = parse_json_object(raw)
+            job = str(data.get("job") or "").strip() or target.title
+        except (ValueError, json.JSONDecodeError, TimeoutError, urllib.error.URLError, RuntimeError, OSError):
+            job = target.title
         return target.id, job
 
     def opinion(
         self, brief: Brief, diff: str, logs: str, *, job_upgrade_id: int = 0
     ) -> dict[str, Any]:
+        empty = {"passed_ids": [], "revert_paths": [], "notes": [], "halt": False}
         if getattr(self.client, "mock", False):
-            return {"passed_ids": [], "revert_paths": [], "notes": [], "halt": False}
+            return dict(empty)
         current = next((u for u in brief.upgrades if u.id == int(job_upgrade_id or 0)), None)
         job_paths = list(current.paths) if current is not None else []
-        raw = self.client.chat(
-            [
-                {"role": "system", "content": CRITIC_SCORE_SYSTEM},
-                {
-                    "role": "user",
-                    "content": (
-                        f"current_job_id={int(job_upgrade_id or 0)}\n"
-                        f"current_job_paths={json.dumps(job_paths)}\n"
-                        f"Writes outside current_job_paths must be reverted; do not pass that upgrade.\n\n"
-                        f"brief={json.dumps(brief.to_dict())}\n\n"
-                        f"diff:\n{diff[-16_000:]}\n\n"
-                        f"check logs:\n{logs[-16_000:]}"
-                    ),
-                },
-            ]
-        )
         try:
+            raw = self.client.chat(
+                [
+                    {"role": "system", "content": CRITIC_SCORE_SYSTEM},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"current_job_id={int(job_upgrade_id or 0)}\n"
+                            f"current_job_paths={json.dumps(job_paths)}\n"
+                            f"Writes outside current_job_paths must be reverted; do not pass that upgrade.\n\n"
+                            f"brief={json.dumps(brief.to_dict())}\n\n"
+                            f"diff:\n{diff[-16_000:]}\n\n"
+                            f"check logs:\n{logs[-16_000:]}"
+                        ),
+                    },
+                ]
+            )
             data = parse_json_object(raw)
-        except (ValueError, json.JSONDecodeError):
+        except (ValueError, json.JSONDecodeError, TimeoutError, urllib.error.URLError, RuntimeError, OSError):
+            return dict(empty)
+        if not isinstance(data, dict):
             data = {}
         return {
-            "passed_ids": [int(x) for x in (data.get("passed_ids") or [])],
-            "revert_paths": [str(x) for x in (data.get("revert_paths") or [])],
-            "notes": [str(x) for x in (data.get("notes") or [])],
+            "passed_ids": _as_id_list(data.get("passed_ids")),
+            "revert_paths": _as_str_list(data.get("revert_paths")),
+            "notes": _as_str_list(data.get("notes")),
             "halt": bool(data.get("halt", False)),
         }

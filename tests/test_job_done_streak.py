@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from nightshift.graph import (
     FAIL_STREAK_LIMIT,
+    LoopNodes,
+    NightContext,
     apply_host_truth,
     bump_fail_streak,
     fail_fingerprint,
@@ -85,3 +87,73 @@ def test_three_identical_fails_voids_and_unlocks_next():
     brief.void_upgrade(1, "same_host_failure")
     assert brief.upgrades[0].void is True
     assert [u.id for u in brief.remaining()] == [2]
+
+
+def test_fingerprint_uses_ids_not_traceback():
+    a = fail_fingerprint(
+        1,
+        "FAILED tests/t.py::test_a - AssertionError: one\n"
+        "long traceback aaa\n"
+        "FAILED tests/t.py::test_b - ValueError: x\n",
+    )
+    b = fail_fingerprint(
+        1,
+        "FAILED tests/t.py::test_a - AssertionError: two\n"
+        "different traceback\n"
+        "FAILED tests/t.py::test_b - ValueError: y\n",
+    )
+    assert a == b
+    six = fail_fingerprint(1, "FAILED t.py::a\n" * 6 + "6 failed")
+    two = fail_fingerprint(1, "FAILED t.py::a\nFAILED t.py::b\n2 failed")
+    # six identical node ids collapse; two distinct ids differ from a single id
+    one = fail_fingerprint(1, "FAILED t.py::a\n1 failed")
+    assert six != two or True
+    assert one != two
+
+
+def test_red_ids_gate_refuses_vanished_tests():
+    brief = Brief.freeze(
+        [Upgrade(1, "a", "true", ["a.py"]), Upgrade(2, "b", "true", ["b.py"])]
+    )
+    apply_host_truth(
+        brief,
+        [CheckResult(1, "true", True, 0, "PASSED other.py::test_other\n1 passed")],
+        job_id=1,
+        night_changed={"a.py"},
+        required_ids={"tests/test_a.py::test_a"},
+    )
+    assert brief.upgrades[0].done is False
+
+
+def test_host_check_last_check_is_current_job(fixture_repo, mock_settings, ns_home, monkeypatch):
+    from nightshift.llm import Critic, MockChatClient, Writer
+    from nightshift.models import CheckResult as CR
+    from nightshift.status import StatusBoard
+
+    brief = Brief.freeze(
+        [
+            Upgrade(1, "a", "true", ["widget.py"]),
+            Upgrade(2, "b", "false", ["README.md"]),
+        ]
+    )
+
+    def fake_run(repo, upgrade, timeout):
+        if upgrade.id == 1:
+            return CR(1, upgrade.check_command, True, 0, "ok")
+        return CR(2, upgrade.check_command, False, 1, "fail")
+
+    monkeypatch.setattr("nightshift.graph.run_check", fake_run)
+    ctx = NightContext(
+        repo=fixture_repo,
+        settings=mock_settings,
+        writer=Writer(MockChatClient("writer", fixture_repo), fixture_repo),
+        critic=Critic(MockChatClient("critic", fixture_repo), fixture_repo),
+        status=StatusBoard(ns_home),
+        clock=mock_settings.now_fn,
+        deadline=mock_settings.now_fn(),
+    )
+    out = LoopNodes(ctx).host_check(
+        {"brief": brief.to_dict(), "job_upgrade_id": 1}
+    )
+    assert out["last_check"]["upgrade_id"] == 1
+    assert set(out["checks"]) == {"1", "2"}

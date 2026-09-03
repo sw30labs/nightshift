@@ -66,22 +66,23 @@ The cloud CI VM has neither oMLX nor the Sparks. Tests use `--mock` / `NIGHTSHIF
 From a source checkout, same shape as LoopScope:
 
 ```bash
-./setup_and_run.sh          # venv + tests + mock deck over ~/REPOS
+./setup_and_run.sh          # conda env + tests + mock deck over ~/REPOS
 ./setup_and_run.sh --live   # oMLX + spark-serve ds4
 ./setup_and_run.sh --demo   # seeded widget only
 ```
 
 `--setup-only` stops after deps and tests. `--live` fills the two-brain URLs if they are unset. The deck binds `127.0.0.1:43171` by default (`NIGHTSHIFT_PORT` / `--port`); LoopScope stays on `:7788`.
 
-Python 3.11+. By hand:
+Python 3.11+, via conda (Miniconda/Miniforge). `setup_and_run.sh` creates and
+uses a `nightshift` conda env (`NIGHTSHIFT_CONDA_ENV` to rename it). By hand:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
+conda create -n nightshift -c conda-forge python=3.11 pip
+conda activate nightshift
 pip install -e ".[dev]"
 ```
 
-LoopScope is optional but preferred. Same venv:
+LoopScope is optional but preferred. Same env:
 
 ```bash
 pip install git+https://github.com/sw30labs/loopscope.git

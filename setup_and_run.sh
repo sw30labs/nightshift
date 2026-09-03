@@ -3,20 +3,21 @@
 # command deck.
 #
 # Usage:
-#   ./setup_and_run.sh                 # venv + tests + mock deck over ~/REPOS → :43171
+#   ./setup_and_run.sh                 # conda env + tests + mock deck over ~/REPOS → :43171
 #   ./setup_and_run.sh --live          # same, then the deck against oMLX + DS4
 #   ./setup_and_run.sh --demo          # mock deck with the seeded widget repo only
-#   ./setup_and_run.sh --setup-only    # venv + deps + tests, no deck
+#   ./setup_and_run.sh --setup-only    # conda env + deps + tests, no deck
 #   ./setup_and_run.sh --no-tests      # skip pytest
 #   ./setup_and_run.sh --no-browser    # accepted; the deck does not open a tab
 #   ./setup_and_run.sh --port 43171
-#   ./setup_and_run.sh up              # start deck only (no pip if .venv exists)
+#   ./setup_and_run.sh up              # start deck only (no pip if env exists)
 #   ./setup_and_run.sh stop            # stale nightshift serve only
-#   ./setup_and_run.sh status          # venv? port listening?
+#   ./setup_and_run.sh status          # env? port listening?
 #   ./setup_and_run.sh --help
 #
 # Env overrides:
-#   NIGHTSHIFT_PYTHON       interpreter used to create the venv (>= 3.11)
+#   NIGHTSHIFT_CONDA_ENV    conda env name (default: nightshift)
+#   NIGHTSHIFT_PYTHON       python version for `conda create` (default: 3.11)
 #   NIGHTSHIFT_PORT         command deck port (default 43171; not LoopScope :7788)
 #   NIGHTSHIFT_NO_BROWSER=1 same as --no-browser
 #   NIGHTSHIFT_ROOTS        git roots to scan (default $HOME/REPOS)
@@ -37,7 +38,8 @@ RUN_TESTS=1
 OPEN_BROWSER=1
 SKIP_PIP=0
 PORT="${NIGHTSHIFT_PORT:-43171}"
-VENV=.venv
+ENV_NAME="${NIGHTSHIFT_CONDA_ENV:-nightshift}"
+PY_VERSION="${NIGHTSHIFT_PYTHON:-3.11}"
 
 usage() { awk 'NR>1 && /^#/ { sub(/^# ?/, ""); print; next } NR>1 { exit }' "$0"; }
 
@@ -91,26 +93,60 @@ if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; th
   exit 1
 fi
 
-if [ "$CMD" = "up" ]; then
-  RUN_TESTS=0
-  if [ -x "$VENV/bin/python" ]; then
-    SKIP_PIP=1
+# ── conda ───────────────────────────────────────────────────────────────────
+find_conda() {
+  local candidate
+  if [ -n "${CONDA_EXE:-}" ] && [ -x "${CONDA_EXE}" ]; then
+    printf '%s\n' "$CONDA_EXE"
+    return 0
   fi
-fi
+  if command -v conda >/dev/null 2>&1; then
+    command -v conda
+    return 0
+  fi
+  for candidate in \
+    "${HOME}/miniforge3/bin/conda" \
+    "${HOME}/mambaforge/bin/conda" \
+    "${HOME}/miniconda3/bin/conda" \
+    "${HOME}/anaconda3/bin/conda"
+  do
+    if [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+conda_env_exists() {
+  "$CONDA_BIN" env list | awk -v environment="$ENV_NAME" '
+    $1 == environment { found = 1 }
+    END { exit(found ? 0 : 1) }
+  '
+}
+
+CONDA_BIN="$(find_conda)" || {
+  echo "ERROR: conda was not found. Install Miniconda/Miniforge, or set CONDA_EXE." >&2
+  exit 1
+}
+
+run_in_env() {
+  "$CONDA_BIN" run --no-capture-output --name "$ENV_NAME" "$@"
+}
 
 # ── stale decks ─────────────────────────────────────────────────────────────
 # A serve from an earlier run outlives the terminal that started it and keeps
 # holding the port, which makes a fresh start look like a hang. Clear ours,
-# refuse to fight anyone else's. Only processes whose executable is python
-# count, so a shell or editor whose command line merely mentions the file is
-# never a kill target.
+# refuse to fight anyone else's. Only processes whose executable is python or
+# conda count, so a shell or editor whose command line merely mentions the
+# file is never a kill target.
 deck_pids() {
   local pid comm
   for pid in $(pgrep -f ' -m nightshift serve|[/ ]nightshift serve' 2>/dev/null || true); do
     [ "$pid" = "$$" ] && continue
     comm="$(ps -o comm= -p "$pid" 2>/dev/null || true)"
     case "${comm##*/}" in
-      python | Python | python[0-9]*) printf '%s\n' "$pid" ;;
+      python | Python | python[0-9]* | conda | conda.exe) printf '%s\n' "$pid" ;;
     esac
   done
 }
@@ -161,97 +197,60 @@ if [ "$CMD" = "stop" ]; then
 fi
 
 if [ "$CMD" = "status" ]; then
-  if [ -x "$VENV/bin/python" ]; then
-    echo "venv     $VENV ($("$VENV/bin/python" --version 2>&1))"
+  if conda_env_exists; then
+    echo "conda env  $ENV_NAME ($("$CONDA_BIN" run --name "$ENV_NAME" python --version 2>&1))"
   else
-    echo "venv     missing ($VENV)"
+    echo "conda env  missing ($ENV_NAME)"
   fi
   pids="$(deck_pids)"
   if [ -n "$pids" ]; then
-    echo "serve    pids $(echo "$pids" | tr '\n' ' ')"
+    echo "serve      pids $(echo "$pids" | tr '\n' ' ')"
   else
-    echo "serve    not running"
+    echo "serve      not running"
   fi
   leftover="$(port_listener)"
   if [ -n "$leftover" ]; then
-    echo "port     $PORT listening"
+    echo "port       $PORT listening"
     printf '%s\n' "$leftover"
   else
-    echo "port     $PORT free"
+    echo "port       $PORT free"
   fi
   exit 0
 fi
 
-# ── interpreter ─────────────────────────────────────────────────────────────
-# pyproject requires >= 3.11. Prefer the newest on PATH rather than pinning;
-# there is no upper bound. macOS /usr/bin/python3 is often still 3.9 and
-# cannot import the package.
-pick_python() {
-  local candidate
-  if [ -n "${NIGHTSHIFT_PYTHON:-}" ]; then
-    if [ ! -x "${NIGHTSHIFT_PYTHON}" ] && ! command -v "${NIGHTSHIFT_PYTHON}" >/dev/null 2>&1; then
-      echo "ERROR: NIGHTSHIFT_PYTHON is not executable: $NIGHTSHIFT_PYTHON" >&2
-      exit 1
-    fi
-    if ! "$NIGHTSHIFT_PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null; then
-      echo "ERROR: NIGHTSHIFT_PYTHON must be Python 3.11 or newer" >&2
-      exit 1
-    fi
-    printf '%s\n' "$NIGHTSHIFT_PYTHON"
-    return
+if [ "$CMD" = "up" ]; then
+  RUN_TESTS=0
+  if conda_env_exists; then
+    SKIP_PIP=1
   fi
-  if [ -x "$VENV/bin/python" ] &&
-    "$VENV/bin/python" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null; then
-    printf '%s\n' "$VENV/bin/python"
-    return
-  fi
-  for candidate in python3.14 python3.13 python3.12 python3.11 python3; do
-    command -v "$candidate" >/dev/null 2>&1 || continue
-    if "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null; then
-      printf '%s\n' "$candidate"
-      return
-    fi
-  done
-  echo ""
-}
-
-PY="$(pick_python)"
-if [ -z "$PY" ]; then
-  echo "ERROR: no Python >= 3.11 on PATH. Set NIGHTSHIFT_PYTHON." >&2
-  exit 1
-fi
-echo "==> Using $PY ($("$PY" --version 2>&1))"
-
-if [ -x "$VENV/bin/python" ] &&
-  ! "$VENV/bin/python" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null; then
-  echo "==> Existing $VENV is Python < 3.11 — recreating"
-  rm -rf "$VENV"
 fi
 
-if [ ! -d "$VENV" ]; then
-  echo "==> Creating virtual environment in $VENV"
-  "$PY" -m venv "$VENV"
+# ── env ──────────────────────────────────────────────────────────────────
+if conda_env_exists; then
+  echo "==> Using existing conda env: $ENV_NAME"
+else
+  echo "==> Creating conda env: $ENV_NAME (python $PY_VERSION)"
+  "$CONDA_BIN" create --yes --name "$ENV_NAME" --channel conda-forge \
+    "python=$PY_VERSION" pip setuptools wheel
 fi
-# shellcheck disable=SC1091
-source "$VENV/bin/activate"
 
 if [ "$SKIP_PIP" -eq 0 ]; then
   echo "==> Installing nightshift (extras: dev)"
-  python -m pip install --quiet --upgrade pip
-  python -m pip install --quiet -e ".[dev]"
+  run_in_env python -m pip install --quiet --upgrade pip
+  run_in_env python -m pip install --quiet -e ".[dev]"
   echo "==> Installing loopscope (best-effort)"
-  if ! python -m pip install --quiet "git+https://github.com/sw30labs/loopscope.git"; then
+  if ! run_in_env python -m pip install --quiet "git+https://github.com/sw30labs/loopscope.git"; then
     echo "==> WARN: loopscope pip install failed — observe degrades to JSONL" >&2
   fi
 else
-  echo "==> up: $VENV already present, skipping pip"
+  echo "==> up: $ENV_NAME already present, skipping pip"
 fi
 
 export PYTHONPATH="${PWD}${PYTHONPATH:+:$PYTHONPATH}"
 
 if [ "$RUN_TESTS" -eq 1 ]; then
   echo "==> Running test suite"
-  python -m pytest -q
+  run_in_env python -m pytest -q
 fi
 
 if [ "$SETUP_ONLY" -eq 1 ]; then
@@ -284,13 +283,16 @@ echo "    headless? tunnel with:  ssh -L $PORT:127.0.0.1:$PORT <host>"
 
 if [ "$LIVE" -eq 1 ]; then
   echo "==> live command deck (oMLX + spark-serve ds4, roots ${NIGHTSHIFT_ROOTS:-$HOME/REPOS})"
-  exec python -m nightshift serve --host 127.0.0.1 --port "$PORT"
+  exec "$CONDA_BIN" run --no-capture-output --name "$ENV_NAME" \
+    python -m nightshift serve --host 127.0.0.1 --port "$PORT"
 fi
 
 if [ "$DEMO" -eq 1 ]; then
   echo "==> mock demo command deck (seeded widget only)"
-  exec python -m nightshift serve --mock --demo --host 127.0.0.1 --port "$PORT"
+  exec "$CONDA_BIN" run --no-capture-output --name "$ENV_NAME" \
+    python -m nightshift serve --mock --demo --host 127.0.0.1 --port "$PORT"
 fi
 
 echo "==> mock command deck (roots ${NIGHTSHIFT_ROOTS:-$HOME/REPOS})"
-exec python -m nightshift serve --mock --host 127.0.0.1 --port "$PORT"
+exec "$CONDA_BIN" run --no-capture-output --name "$ENV_NAME" \
+  python -m nightshift serve --mock --host 127.0.0.1 --port "$PORT"

@@ -11,7 +11,7 @@ Electricity is cheaper at night. The local supercomputers are already paid for: 
 
 Minute 0, the critic walks the tree, tests, README, and recent log, then the ledger of nights that already ran. It freezes **2–5 checkable upgrades** (deck **JOBS**, default **2**). Not “cleaner architecture.” Each item has a host command that can pass or fail. The writer cannot grow the brief. Last night’s attempted checks get **voided**, not retried.
 
-Then a Ralph loop until remaining is 0, the clock (default 06:00 local), or `max_turns`: critic jobs the next open item, Spark DS4 writes, **host pytest is truth**, critic reverts gold-plating. Morning you get:
+Then a Ralph loop until remaining is 0, the clock (default 06:00 local), or `max_turns`: critic jobs the next open item, Spark DS4 writes, **host pytest is truth** (only the current job can be marked done, and only if its `paths[]` changed this night), critic reverts gold-plating. The same host failure three times voids that job and unlocks the next. Morning you get:
 
 - `night/YYYY-MM-DD[-HHMM]` — **`main` never touched**
 - a [LoopScope](https://github.com/sw30labs/loopscope) replay

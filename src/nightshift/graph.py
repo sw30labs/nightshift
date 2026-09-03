@@ -13,10 +13,10 @@ from pathlib import Path
 from typing import Any, Callable, TypedDict
 
 from .config import Settings
-from .gitops import changed_paths, commit_paths, log_oneline, revert_paths, working_tree_diff
+from .gitops import changed_paths, commit_paths, git, log_oneline, revert_paths, working_tree_diff
 from .host import run_check
 from .llm import Critic, Writer, persist_meta
-from .models import Brief, CheckResult, normalize_rel
+from .models import Brief, CheckResult, FrozenBriefError, normalize_rel
 from .safety import git_visible_files, is_blocked_rel, is_meta_path
 from .status import StatusBoard
 
@@ -66,6 +66,7 @@ class NightState(TypedDict, total=False):
     check_results: list[dict[str, Any]]
     main_ref: str
     main_sha: str
+    fail_streak: dict[str, Any]
 
 
 @dataclass
@@ -95,6 +96,59 @@ def next_halt(halt_at: str, now: datetime) -> datetime:
     if now < candidate:
         return candidate
     return candidate + timedelta(days=1)
+
+
+FAIL_STREAK_LIMIT = 3
+
+
+def fail_fingerprint(exit_code: int, output: str) -> str:
+    """Stable-enough signature of a host failure so identical retries tally."""
+    needles = (
+        "ModuleNotFoundError",
+        "ImportError",
+        "SyntaxError",
+        "file or directory not found",
+        "ERROR:",
+    )
+    picked = ""
+    for ln in (output or "").splitlines():
+        line = ln.strip()
+        if any(n in line for n in needles):
+            picked = line
+            break
+    if not picked:
+        picked = " ".join((output or "").split())[:180]
+    return f"{int(exit_code)}:{picked}"
+
+
+def bump_fail_streak(streak: dict[str, Any], upgrade_id: int, fingerprint: str) -> dict[str, Any]:
+    same = (
+        int(streak.get("upgrade_id") or 0) == int(upgrade_id)
+        and str(streak.get("fp") or "") == fingerprint
+    )
+    count = int(streak.get("count") or 0) + 1 if same else 1
+    return {"upgrade_id": int(upgrade_id), "fp": fingerprint, "count": count}
+
+
+def night_changed_rels(repo: Path, main_sha: str) -> set[str]:
+    """Repo-relative paths that differ from the night's parent (main_sha)."""
+    names: set[str] = set()
+    if main_sha:
+        proc = git(repo, "diff", "--name-only", main_sha, check=False)
+        for line in proc.stdout.splitlines():
+            rel = normalize_rel(line.strip())
+            if rel:
+                names.add(rel)
+    for rel in changed_paths(repo):
+        names.add(normalize_rel(rel))
+    return names
+
+
+def job_paths_changed(night_changed: set[str], paths: list[str]) -> bool:
+    want = {normalize_rel(p) for p in paths if str(p).strip()}
+    if not want:
+        return False
+    return bool(want & night_changed)
 
 
 def read_snapshot(repo: Path, max_bytes: int = 350_000) -> str:
@@ -286,19 +340,10 @@ class LoopNodes:
         for row in results_raw:
             by_id[int(row["upgrade_id"])] = row
         # Host output is truth. Critic opinion cannot mark a failing check done.
-        # Void stays void. A passing-then-failing check does not un-done.
-        for upgrade in brief.upgrades:
-            if upgrade.void:
-                continue
-            row = by_id.get(upgrade.id)
-            if upgrade.done:
-                if row and not row.get("ok"):
-                    note = f"upgrade {upgrade.id} check failed after done; leaving done"
-                    if note not in self.ctx.refused:
-                        self.ctx.refused.append(note)
-                continue
-            upgrade.done = bool(row and row.get("ok"))
+        # Only the current job can be marked done, and only if its paths[]
+        # actually changed this night (pre-existing green tests are not a landing).
         job_uid = int(state.get("job_upgrade_id") or 0)
+        main_sha = str(state.get("main_sha") or self.ctx.main_sha or "")
         opinion = self.ctx.critic.opinion(
             brief,
             str(state.get("last_diff") or ""),
@@ -325,6 +370,67 @@ class LoopNodes:
             note = f"reverted unapproved path {path}"
             if note not in self.ctx.refused:
                 self.ctx.refused.append(note)
+        night_changed = night_changed_rels(self.ctx.repo, main_sha)
+        apply_host_truth(
+            brief,
+            [
+                CheckResult(
+                    upgrade_id=int(row["upgrade_id"]),
+                    command=str(row.get("command") or ""),
+                    ok=bool(row.get("ok")),
+                    exit_code=int(row.get("exit_code") or 0),
+                    output=str(row.get("output") or ""),
+                )
+                for row in results_raw
+            ],
+            job_id=job_uid,
+            night_changed=night_changed,
+        )
+        current = next((u for u in brief.upgrades if u.id == job_uid), None)
+        row = by_id.get(job_uid)
+        streak = dict(state.get("fail_streak") or {})
+        if current is not None and not current.void and row and not row.get("ok"):
+            fp = fail_fingerprint(int(row.get("exit_code") or 0), str(row.get("output") or ""))
+            streak = bump_fail_streak(streak, job_uid, fp)
+            if int(streak.get("count") or 0) >= FAIL_STREAK_LIMIT:
+                try:
+                    brief.void_upgrade(
+                        job_uid,
+                        "same_host_failure",
+                    )
+                    note = (
+                        f"upgrade {job_uid} voided: same host failure "
+                        f"{FAIL_STREAK_LIMIT} times; unlocking next job"
+                    )
+                    if note not in self.ctx.refused:
+                        self.ctx.refused.append(note)
+                    streak = {}
+                except FrozenBriefError as exc:
+                    note = f"could not void upgrade {job_uid}: {exc}"
+                    if note not in self.ctx.refused:
+                        self.ctx.refused.append(note)
+        else:
+            streak = {}
+        for upgrade in brief.upgrades:
+            if upgrade.done:
+                row_u = by_id.get(upgrade.id)
+                if row_u and not row_u.get("ok"):
+                    note = f"upgrade {upgrade.id} check failed after done; leaving done"
+                    if note not in self.ctx.refused:
+                        self.ctx.refused.append(note)
+            elif (
+                upgrade.id == job_uid
+                and not upgrade.void
+                and row
+                and row.get("ok")
+                and not job_paths_changed(night_changed, upgrade.paths)
+            ):
+                note = (
+                    f"upgrade {upgrade.id} check passed but paths[] unchanged "
+                    "this night; not marking done"
+                )
+                if note not in self.ctx.refused:
+                    self.ctx.refused.append(note)
         for note in opinion.get("notes") or []:
             if note not in self.ctx.refused:
                 self.ctx.refused.append(str(note))
@@ -352,6 +458,7 @@ class LoopNodes:
             "refused": list(self.ctx.refused),
             "halt_reason": halt_reason,
             "written": [],
+            "fail_streak": streak,
         }
 
 
@@ -380,15 +487,29 @@ def run_cycle(nodes: LoopNodes, state: NightState) -> NightState:
     return merged  # type: ignore[return-value]
 
 
-def apply_host_truth(brief: Brief, results: list[CheckResult]) -> None:
-    """Decrement only what the host actually passed. Used by unit tests."""
+def apply_host_truth(
+    brief: Brief,
+    results: list[CheckResult],
+    *,
+    job_id: int = 0,
+    night_changed: set[str] | None = None,
+) -> None:
+    """Mark done only for the current job, and only if its paths changed tonight.
+
+    Pre-existing green checks on other jobs are not evidence the writer landed them.
+    """
     by_id = {r.upgrade_id: r for r in results}
+    changed = night_changed if night_changed is not None else set()
     for upgrade in brief.upgrades:
         if upgrade.void:
             continue
         row = by_id.get(upgrade.id)
         if upgrade.done:
-            # Regression: do not un-done.
             continue
-        if not upgrade.done and not upgrade.void:
-            upgrade.done = bool(row and row.ok)
+        if upgrade.id != int(job_id or 0):
+            continue
+        if not (row and row.ok):
+            continue
+        if not job_paths_changed(changed, upgrade.paths):
+            continue
+        upgrade.done = True

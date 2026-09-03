@@ -190,6 +190,7 @@ def minute_zero(ctx: NightContext) -> NightState:
         "check_results": [],
         "main_ref": ctx.main_ref,
         "main_sha": ctx.main_sha,
+        "fail_streak": {},
     }
 
 

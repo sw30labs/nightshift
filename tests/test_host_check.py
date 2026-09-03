@@ -23,12 +23,31 @@ def test_host_check_is_truth_not_critic_opinion(fixture_repo):
     passing_b = run_check(fixture_repo, brief.upgrades[2], timeout=30)
     assert failing.ok is False
     assert passing_a.ok and passing_b.ok
-    apply_host_truth(brief, [failing, passing_a, passing_b])
+    apply_host_truth(
+        brief,
+        [failing, passing_a, passing_b],
+        job_id=1,
+        night_changed={"widget.py"},
+    )
     # Critic claims upgrade 1 passed. Host said no.
-    critic_claimed = {1, 2, 3}
-    for upgrade in brief.upgrades:
-        if upgrade.id in critic_claimed and upgrade.id == 1:
-            assert upgrade.done is False
     assert brief.upgrades[0].done is False
-    assert brief.upgrades[1].done is True
-    assert brief.remaining_count == 1
+    # Other jobs' green checks do not certify them.
+    assert brief.upgrades[1].done is False
+    assert brief.upgrades[2].done is False
+    assert brief.remaining_count == 3
+
+
+def test_apply_host_truth_marks_current_job_when_paths_changed():
+    brief = Brief.freeze(
+        [
+            Upgrade(1, "a", "true", ["a.py"]),
+            Upgrade(2, "b", "true", ["b.py"]),
+        ]
+    )
+    from nightshift.models import CheckResult
+
+    ok = CheckResult(1, "true", True, 0, "")
+    other = CheckResult(2, "true", True, 0, "")
+    apply_host_truth(brief, [ok, other], job_id=1, night_changed={"a.py"})
+    assert brief.upgrades[0].done is True
+    assert brief.upgrades[1].done is False

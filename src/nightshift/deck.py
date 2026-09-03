@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
@@ -28,6 +29,39 @@ class DeckState:
         self.board = StatusBoard(settings.state_dir())
         self._run_lock = threading.Lock()
         self._thread: threading.Thread | None = None
+        self.snapshot()
+
+    def _live_owner(self, runner_pid: int | None) -> bool:
+        if self._thread is not None and self._thread.is_alive():
+            return True
+        if runner_pid is None or runner_pid == os.getpid():
+            return False
+        try:
+            os.kill(runner_pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    def _reconcile_status_locked(self):
+        status = self.board.read()
+        if status.state == "running" and not self._live_owner(status.runner_pid):
+            status = self.board.update(
+                state="halted",
+                runner_pid=None,
+                brain="",
+                halt_reason="interrupted",
+                error=(
+                    "The previous shift was interrupted. "
+                    "Select a repository and press Run to start again."
+                ),
+            )
+        return status
+
+    def snapshot(self) -> dict[str, Any]:
+        with self._run_lock:
+            return self._reconcile_status_locked().to_dict()
 
     def repos(self, include_deprecated: bool) -> list[dict[str, Any]]:
         return [
@@ -44,8 +78,6 @@ class DeckState:
         ]
 
     def start_run(self, path: str, mock: bool | None, brief_size: int | None = None) -> dict[str, Any]:
-        if self.board.read().state == "running":
-            return {"ok": False, "error": "a shift is already running"}
         from .models import clamp_brief_size
 
         size = clamp_brief_size(
@@ -77,12 +109,23 @@ class DeckState:
             try:
                 run_night(Path(path), settings, explicit=True)
             except Exception as exc:
-                self.board.update(state="error", error=str(exc), brain="")
+                self.board.update(
+                    state="error",
+                    runner_pid=None,
+                    error=str(exc),
+                    brain="",
+                )
 
         with self._run_lock:
-            if self.board.read().state == "running":
+            if self._reconcile_status_locked().state == "running":
                 return {"ok": False, "error": "a shift is already running"}
-            self.board.update(state="running", repo=path, error="", summary="")
+            self.board.update(
+                state="running",
+                runner_pid=os.getpid(),
+                repo=path,
+                error="",
+                summary="",
+            )
             self._thread = threading.Thread(target=_go, daemon=True)
             self._thread.start()
         return {"ok": True, "repo": path, "mock": settings.mock, "brief_size": size}
@@ -119,7 +162,7 @@ def make_handler(deck: DeckState):
                 self._json(200, {"repos": deck.repos(include)})
                 return
             if parsed.path == "/api/status":
-                self._json(200, deck.board.snapshot())
+                self._json(200, deck.snapshot())
                 return
             if parsed.path == "/api/config":
                 self._json(
@@ -136,7 +179,7 @@ def make_handler(deck: DeckState):
                 )
                 return
             if parsed.path == "/api/summary":
-                snap = deck.board.snapshot()
+                snap = deck.snapshot()
                 self._json(200, {"summary": snap.get("summary") or ""})
                 return
             self._json(404, {"error": "not found"})

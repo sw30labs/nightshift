@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 import urllib.error
 import urllib.request
 
 from nightshift.config import Settings
-from nightshift.deck import serve_deck
+from nightshift.deck import DeckState, serve_deck
+from nightshift.status import StatusBoard
 
 
 def _get(url: str) -> dict:
@@ -29,6 +31,81 @@ def _post(url: str, payload: dict) -> tuple[int, dict]:
     except urllib.error.HTTPError as exc:
         body = json.loads(exc.read().decode("utf-8"))
         return exc.code, body
+
+
+def test_deck_recovers_interrupted_run_and_accepts_another(
+    tmp_path, ns_home, monkeypatch
+):
+    settings = Settings(mock=True, observe=False, home=ns_home, deck_port=0)
+    StatusBoard(settings.state_dir()).update(
+        state="running",
+        repo="/tmp/interrupted-repo",
+        brain="writer",
+    )
+    monkeypatch.setattr("nightshift.deck.run_night", lambda *args, **kwargs: None)
+
+    httpd = serve_deck(settings, demo=True)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = httpd.server_address[:2]
+        base = f"http://{host}:{port}"
+        snap = _get(base + "/api/status")
+        assert snap["state"] == "halted"
+        assert snap["halt_reason"] == "interrupted"
+        assert snap["runner_pid"] is None
+        assert "previous shift was interrupted" in snap["error"].lower()
+
+        widget = _get(base + "/api/repos")["repos"][0]["path"]
+        code, started = _post(base + "/api/run", {"path": widget, "mock": True})
+        assert code == 200, started
+        assert started["ok"] is True
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_deck_preserves_running_status_for_live_external_owner(
+    ns_home, monkeypatch
+):
+    settings = Settings(mock=True, observe=False, home=ns_home, deck_port=0)
+    external_pid = os.getpid() + 10_000
+    monkeypatch.setattr("nightshift.deck.os.kill", lambda pid, signal: None)
+    StatusBoard(settings.state_dir()).update(
+        state="running",
+        runner_pid=external_pid,
+        repo="/tmp/live-repo",
+    )
+
+    deck = DeckState(settings)
+
+    assert deck.snapshot()["state"] == "running"
+    assert deck.start_run("/tmp/another-repo", True) == {
+        "ok": False,
+        "error": "a shift is already running",
+    }
+
+
+def test_deck_recovers_running_status_for_dead_external_owner(
+    ns_home, monkeypatch
+):
+    settings = Settings(mock=True, observe=False, home=ns_home, deck_port=0)
+
+    def missing_process(pid, signal):
+        raise ProcessLookupError
+
+    monkeypatch.setattr("nightshift.deck.os.kill", missing_process)
+    StatusBoard(settings.state_dir()).update(
+        state="running",
+        runner_pid=os.getpid() + 10_000,
+        repo="/tmp/dead-repo",
+    )
+
+    snap = DeckState(settings).snapshot()
+
+    assert snap["state"] == "halted"
+    assert snap["halt_reason"] == "interrupted"
+    assert snap["runner_pid"] is None
 
 
 def test_deck_lists_and_runs_mock(tmp_path, ns_home):

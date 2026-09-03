@@ -13,6 +13,7 @@ from typing import Any
 @dataclass
 class RunStatus:
     state: str = "idle"
+    runner_pid: int | None = None
     repo: str = ""
     branch: str = ""
     brain: str = ""

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -201,6 +202,7 @@ def run_night(repo: Path, settings: Settings, *, explicit: bool = True) -> Night
     main_sha = rev_parse(target, main_ref)
     board.update(
         state="running",
+        runner_pid=os.getpid(),
         repo=str(target),
         brain="critic",
         remaining_count=int(settings.brief_size),
@@ -299,7 +301,12 @@ def run_night(repo: Path, settings: Settings, *, explicit: bool = True) -> Night
                 halt_reason = "max_turns"
     except Exception as exc:
         halt_reason = halt_reason or "error"
-        ctx.status.update(state="error", error=str(exc), halt_reason=halt_reason)
+        ctx.status.update(
+            state="error",
+            runner_pid=None,
+            error=str(exc),
+            halt_reason=halt_reason,
+        )
         if app is not None and not used_ralph_attach:
             finish(config, status="error")
         raise
@@ -325,6 +332,7 @@ def run_night(repo: Path, settings: Settings, *, explicit: bool = True) -> Night
         push_branch(target, branch)
     ctx.status.update(
         state="done" if halt_reason == "remaining_zero" else "halted",
+        runner_pid=None,
         remaining_count=brief.remaining_count,
         halt_reason=halt_reason,
         summary=summary_text,

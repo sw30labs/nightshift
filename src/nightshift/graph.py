@@ -298,10 +298,12 @@ class LoopNodes:
                         self.ctx.refused.append(note)
                 continue
             upgrade.done = bool(row and row.get("ok"))
+        job_uid = int(state.get("job_upgrade_id") or 0)
         opinion = self.ctx.critic.opinion(
             brief,
             str(state.get("last_diff") or ""),
             str(state.get("check_logs") or ""),
+            job_upgrade_id=job_uid,
         )
         for uid in opinion.get("passed_ids") or []:
             row = by_id.get(int(uid))
@@ -309,7 +311,10 @@ class LoopNodes:
                 self.ctx.refused.append(
                     f"critic claimed upgrade {uid} passed; host check failed"
                 )
-        allowed = brief.allowed_paths()
+        current = next((u for u in brief.upgrades if u.id == job_uid), None)
+        allowed = {
+            normalize_rel(p) for p in (current.paths if current is not None else []) if str(p).strip()
+        }
         changed = changed_paths(self.ctx.repo)
         revert = unapproved_paths(changed, allowed)
         for extra in opinion.get("revert_paths") or []:

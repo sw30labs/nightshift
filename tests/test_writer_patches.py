@@ -90,7 +90,14 @@ def test_writer_missing_path_patch_creates_file(fixture_repo):
                 }
             )
 
-    result = Writer(PatchClient(), fixture_repo).apply_job("add version tests", _brief(), "")
+    brief = Brief.freeze(
+        [
+            Upgrade(id=1, title="a", check_command="true", paths=["tests/test_cli_version.py"]),
+            Upgrade(id=2, title="b", check_command="true", paths=["widget.py"]),
+            Upgrade(id=3, title="c", check_command="true", paths=["widget.py"]),
+        ]
+    )
+    result = Writer(PatchClient(), fixture_repo).apply_job("add version tests", brief, "")
     assert "tests/test_cli_version.py" in result.written
     text = (fixture_repo / "tests" / "test_cli_version.py").read_text()
     assert "def test_version" in text
@@ -140,7 +147,14 @@ def test_writer_missing_path_patch_refuses_huge_new(fixture_repo):
                 }
             )
 
-    result = Writer(Fat(), fixture_repo).apply_job("add huge", _brief(), "")
+    brief = Brief.freeze(
+        [
+            Upgrade(id=1, title="a", check_command="true", paths=["tests/test_huge.py"]),
+            Upgrade(id=2, title="b", check_command="true", paths=["widget.py"]),
+            Upgrade(id=3, title="c", check_command="true", paths=["widget.py"]),
+        ]
+    )
+    result = Writer(Fat(), fixture_repo).apply_job("add huge", brief, "")
     assert result.written == []
     assert not (fixture_repo / "tests" / "test_huge.py").exists()
     assert any("files[] content" in note for note in result.refused)

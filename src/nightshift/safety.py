@@ -103,3 +103,46 @@ def git_visible_files(repo: Path) -> list[str] | None:
 
 def is_meta_path(rel: str) -> bool:
     return normalize_rel(rel).startswith(".nightshift/")
+
+
+def normalize_job_rel(rel: str) -> str:
+    """Posix-relative path for a writer turn. Reject empty, absolute, and .."""
+    raw = (rel or "").replace("\\", "/").strip()
+    if not raw:
+        raise SafetyError("empty path")
+    if raw.startswith("/") or raw.startswith("~") or (len(raw) >= 2 and raw[1] == ":"):
+        raise SafetyError(f"absolute path refused: {rel}")
+    if ".." in Path(raw).parts:
+        raise SafetyError(f"path traversal refused: {rel}")
+    return normalize_rel(raw)
+
+
+def _inside_job_paths(norm: str, allowed: list[str]) -> bool:
+    if norm in allowed:
+        return True
+    for item in allowed:
+        if item.endswith("/"):
+            if norm.startswith(item):
+                return True
+        elif norm.startswith(item.rstrip("/") + "/"):
+            return True
+    return False
+
+
+def assert_job_path(rel: str, paths: list[str]) -> str:
+    """Host lock: only the current job's paths[] may be written. Empty paths fail closed."""
+    norm = normalize_job_rel(rel)
+    allowed: list[str] = []
+    for item in paths:
+        s = str(item or "").strip()
+        if not s:
+            continue
+        try:
+            allowed.append(normalize_job_rel(s))
+        except SafetyError:
+            continue
+    if not allowed:
+        raise SafetyError(f"job paths[] is empty; refusing write {norm}")
+    if not _inside_job_paths(norm, allowed):
+        raise SafetyError(f"write outside job paths[]: {norm}")
+    return norm

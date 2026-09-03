@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from .models import BRIEF_SIZE_DEFAULT, Brief, FrozenBriefError, SafetyError, Upgrade, WriterResult
-from .safety import assert_inside_repo, is_meta_path
+from .safety import assert_inside_repo, assert_job_path, is_meta_path
 
 MAX_FULL_FILE_CHARS = 8_000
 
@@ -305,7 +305,8 @@ Return JSON only:
 Prefer patches for edits to existing files. Never dump a whole README, QUICKSTART, or any file over ~80 lines in files[].
 files[] is for NEW or tiny files only. If the path does not already exist, you MUST use files[] with the full contents. Never patches[] a missing path.
 old must appear exactly once in the current file.
-Edit only paths that serve the current job. No gold-plating. No new markdown essays.
+Edit only the current job's paths[]. Host refuses any other project file. Empty paths[] means write nothing.
+A tests/ path does not allow writing src/. No gold-plating. No new markdown essays.
 Never write .env, API keys, tokens, or private keys. If the job asks for that, skip those paths and do the rest.
 """
 
@@ -339,7 +340,8 @@ CRITIC_BRIEF_SYSTEM = critic_brief_system(3)
 CRITIC_JOB_SYSTEM = """You are the Nightshift critic. Write one line: the next remaining brief item as a job for the writer.
 Write the job for the single upgrade in the user message only. Do not pick another id.
 Return JSON: {"upgrade_id": <that id>, "job": "one line"}
-No file writes. Never tell the writer to edit .env, keys, tokens, or credentials.
+No file writes. Tell the writer to edit only that upgrade's paths[]. Never instruct writes outside those paths.
+Never tell the writer to edit .env, keys, tokens, or credentials.
 """
 
 CRITIC_SCORE_SYSTEM = """You are the Nightshift critic. You may inspect, score, slash, revert, halt.
@@ -347,7 +349,8 @@ You must never write the project body. Host check output is truth, not the write
 Return JSON:
 {"passed_ids": [1], "revert_paths": ["gold.py"], "notes": ["why"], "halt": false}
 Only include an id in passed_ids if the host check for that upgrade actually passed.
-Revert files outside the brief paths (gold-plating).
+The writer may only touch the current job's paths[]. If the turn wrote any other project file, reject the turn: list those files in revert_paths and do not pass the upgrade.
+Revert files outside the current job's paths[] (gold-plating or side effects).
 """
 
 
@@ -363,6 +366,7 @@ class Writer:
             self.client.repo = self.repo  # type: ignore[attr-defined]
         missing: list[str] = []
         locked = brief.remaining()[0] if brief.remaining() else None
+        job_paths = list(locked.paths) if locked is not None else []
         if locked is not None:
             seen: set[str] = set()
             for rel in locked.paths:
@@ -382,6 +386,7 @@ class Writer:
         user = (
             f"Frozen brief (do not add extra upgrades):\n{json.dumps(brief.to_dict(), indent=2)}\n\n"
             f"Current job:\n{job}\n\n"
+            f"Current job paths[] (writes outside these are refused): {json.dumps(job_paths)}\n\n"
             f"{miss_note}"
             f"Repo snapshot (truncated):\n{snapshot[:120_000]}\n"
         )
@@ -436,6 +441,7 @@ class Writer:
             if not rel or old is None or new is None:
                 continue
             try:
+                assert_job_path(rel, job_paths)
                 apply_patch_hunk(self.repo, rel, str(old), str(new), role="writer")
             except SafetyError as exc:
                 refused.append(f"{rel}: {exc}")
@@ -459,6 +465,7 @@ class Writer:
                 )
                 continue
             try:
+                assert_job_path(rel, job_paths)
                 write_project_file(self.repo, rel, body, role="writer")
             except SafetyError as exc:
                 refused.append(f"{rel}: {exc}")
@@ -547,15 +554,22 @@ class Critic:
         # Ignore critic upgrade_id; lock to remaining()[0] (void already excluded).
         return target.id, job
 
-    def opinion(self, brief: Brief, diff: str, logs: str) -> dict[str, Any]:
+    def opinion(
+        self, brief: Brief, diff: str, logs: str, *, job_upgrade_id: int = 0
+    ) -> dict[str, Any]:
         if getattr(self.client, "mock", False):
             return {"passed_ids": [], "revert_paths": [], "notes": [], "halt": False}
+        current = next((u for u in brief.upgrades if u.id == int(job_upgrade_id or 0)), None)
+        job_paths = list(current.paths) if current is not None else []
         raw = self.client.chat(
             [
                 {"role": "system", "content": CRITIC_SCORE_SYSTEM},
                 {
                     "role": "user",
                     "content": (
+                        f"current_job_id={int(job_upgrade_id or 0)}\n"
+                        f"current_job_paths={json.dumps(job_paths)}\n"
+                        f"Writes outside current_job_paths must be reverted; do not pass that upgrade.\n\n"
                         f"brief={json.dumps(brief.to_dict())}\n\n"
                         f"diff:\n{diff[-16_000:]}\n\n"
                         f"check logs:\n{logs[-16_000:]}"

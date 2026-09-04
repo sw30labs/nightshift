@@ -226,6 +226,18 @@ def revert_paths(repo: Path, paths: list[str]) -> list[str]:
     return done
 
 
+def last_commit_unix(repo: Path) -> int:
+    """`git log -1 --format=%ct`. 0 when the repo has no commits or git fails."""
+    proc = git(repo, "log", "-1", "--format=%ct", check=False)
+    raw = (proc.stdout or "").strip().splitlines()
+    if not raw:
+        return 0
+    try:
+        return int(raw[0].strip())
+    except ValueError:
+        return 0
+
+
 def log_oneline(repo: Path, n: int = 12) -> str:
     proc = git(repo, "log", f"-{n}", "--oneline", check=False)
     return proc.stdout.strip()

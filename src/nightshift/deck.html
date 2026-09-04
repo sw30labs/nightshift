@@ -170,7 +170,7 @@
   <header>
     <h1>NIGHTSHIFT</h1>
     <div class="header-right">
-      <div class="tag">TWO BRAINS · ONE BRANCH · <span id="turns-badge"></span> <a id="loopscope" href="http://127.0.0.1:7788" target="_blank" rel="noreferrer">LOOPSCOPE</a></div>
+      <div class="tag">TWO BRAINS · ONE BRANCH · <span id="turns-badge"></span> <a id="loopscope" href="http://127.0.0.1:7788" target="_blank" rel="noreferrer">LOOPSCOPE</a> · <a href="/cmm" target="_blank" rel="noreferrer">CMM</a></div>
       <div id="aineko" class="aineko" title="Aineko · idle" role="status" aria-live="polite">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path class="tail" d="M5 18c-2.8-1.2-3.2-6 1-6.2"/>
@@ -202,12 +202,16 @@
         <button type="button" id="refresh">SCAN</button>
       </div>
       <ul id="repos"><li class="empty">scanning…</li></ul>
+      <h2>BAG</h2>
+      <ul id="bag"><li class="empty">no bag</li></ul>
     </aside>
     <section>
       <h2>RUN</h2>
       <p id="selected" class="empty">Select a git project, press Run, go to sleep.</p>
       <div class="row">
         <button type="button" class="primary" id="run" disabled>RUN</button>
+        <button type="button" id="bag-select">BAG</button>
+        <button type="button" class="primary" id="run-bag">RUN BAG</button>
         <button type="button" id="dry">DRY RUN</button>
         <button type="button" id="halt" class="danger" disabled>HALT AFTER TURN</button>
         <span id="phase" class="empty">idle</span>
@@ -240,6 +244,10 @@
     let lastStatus = {};
     let cfg = {max_turns: 20, writer_timeout: 600, critic_timeout: 180, check_timeout: 120, halt_at: "06:00"};
     const $ = (id) => document.getElementById(id);
+
+    function bagLive(s) {
+      return ((s && s.bag) || {}).state === "running";
+    }
 
     function setAineko(state) {
       const el = $("aineko");
@@ -487,7 +495,7 @@
         $("remaining").classList.toggle("hot", s.remaining_count > 0 && s.state === "running");
       }
       setLamp(s.brain || "", s.updated_at);
-      setAineko(s.state || "idle");
+      setAineko((s.state === "running" || bagLive(s)) ? "running" : (s.state || "idle"));
       if (s.last_check && s.last_check.command) {
         $("check").textContent = "$ " + s.last_check.command + "\nexit " + s.last_check.exit_code +
           "\n" + (s.last_check.output || "");
@@ -497,8 +505,12 @@
       err.textContent = s.error || "";
       err.classList.toggle("dirty", /uncommitted|dirty/i.test(s.error || ""));
       if (s.loopscope_url) $("loopscope").href = s.loopscope_url;
-      $("run").disabled = !selected || s.state === "running";
-      $("halt").disabled = s.state !== "running" || !!s.halt_requested;
+      const live = s.state === "running" || bagLive(s);
+      $("run").disabled = !selected || live;
+      if ($("run-bag")) $("run-bag").disabled = live;
+      if ($("bag-select")) $("bag-select").disabled = live;
+      $("halt").disabled = !live || !!s.halt_requested;
+      renderBag(s);
       if (s.state === "running" && s.halt_requested) {
         $("halt").textContent = "HALTING AFTER TURN " + (s.turn || "") + "…";
       } else {
@@ -507,6 +519,56 @@
       renderBrief(s);
       renderTurns(s);
       tickClock(s);
+    }
+
+    function renderBag(s) {
+      const ul = $("bag");
+      if (!ul) return;
+      const bag = s.bag || {};
+      const targets = bag.targets || [];
+      ul.replaceChildren();
+      if (!targets.length) {
+        const li = document.createElement("li");
+        li.className = "empty";
+        li.textContent = bag.state ? ("bag " + bag.state) : "no bag";
+        ul.appendChild(li);
+        return;
+      }
+      for (const t of targets) {
+        const li = document.createElement("li");
+        const name = document.createElement("span");
+        name.className = "name";
+        name.textContent = (t.name || t.repo_id || "?") + (t.role === "meta" ? " · RSI" : "");
+        const meta = document.createElement("span");
+        meta.className = "meta";
+        const bits = [t.state || "", t.halt_reason || t.error || "", t.remaining_count != null ? ("remaining " + t.remaining_count) : ""];
+        meta.textContent = bits.filter(Boolean).join(" · ");
+        li.appendChild(name);
+        li.appendChild(meta);
+        ul.appendChild(li);
+      }
+    }
+
+    async function postBag(dry) {
+      $("summary").textContent = dry ? "selecting bag…" : "bag started…";
+      const r = await fetch("/api/bag", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          dry: dry,
+          mock: $("mock").checked,
+          brief_size: Number($("brief-size").value),
+          allow_dirty: $("allow-dirty").checked
+        })
+      });
+      const data = await r.json();
+      if (!r.ok) $("error").textContent = data.error || r.statusText;
+      else if (dry && data.bag) {
+        const rows = (data.bag.targets || []).map(t =>
+          (t.role || "") + "  L" + (t.cmm_level == null ? "?" : t.cmm_level) + "  " + (t.name || "") + "  " + (t.path || "")
+        );
+        $("summary").textContent = rows.join("\n") || "no targets";
+      }
     }
 
     $("run").addEventListener("click", async () => {
@@ -553,6 +615,8 @@
       const data = await r.json();
       if (!r.ok) $("error").textContent = data.error || r.statusText;
     });
+    $("bag-select").addEventListener("click", () => postBag(true));
+    $("run-bag").addEventListener("click", () => postBag(false));
     $("refresh").addEventListener("click", loadRepos);
     $("deprecated").addEventListener("change", loadRepos);
 

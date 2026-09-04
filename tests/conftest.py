@@ -13,6 +13,7 @@ def _no_package_checkout(monkeypatch: pytest.MonkeyPatch) -> None:
     # Design note N7: the suite never treats the operator's own checkout as a
     # meta target. A test that needs one seeds a fake Nightshift repo under tmp.
     monkeypatch.setattr("nightshift.cmm.package_checkout", lambda: None)
+    monkeypatch.setattr("nightshift.bag.package_checkout", lambda: None)
 
 
 @pytest.fixture

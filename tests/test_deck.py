@@ -7,6 +7,7 @@ import time
 import urllib.error
 import urllib.request
 
+from nightshift.bag import save_bag
 from nightshift.config import Settings
 from nightshift.deck import DeckState, serve_deck
 from nightshift.status import StatusBoard
@@ -242,6 +243,11 @@ def test_deck_html_has_new_instruments(ns_home):
         with urllib.request.urlopen(base + "/", timeout=5) as resp:
             html = resp.read().decode("utf-8")
         assert 'id="brief"' in html
+        assert 'id="bag-select"' in html
+        assert 'id="run-bag"' in html
+        assert ">BAG<" in html
+        assert "RUN BAG" in html
+        assert 'href="/cmm"' in html
         assert 'id="halt"' in html
         assert 'id="tohalt"' in html
         assert 'id="turns"' in html
@@ -335,6 +341,55 @@ def test_deck_rejects_dirty_unless_allowed(tmp_path, ns_home):
                 break
             time.sleep(0.25)
         assert snap.get("state") in {"done", "halted"}
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_deck_run_refused_while_bag_lock_held(ns_home):
+    settings = Settings(mock=True, observe=False, home=ns_home, deck_port=0)
+    save_bag(
+        ns_home,
+        {
+            "state": "running",
+            "runner_pid": os.getpid(),
+            "targets": [{"name": "alpha", "state": "queued"}],
+        },
+    )
+    deck = DeckState(settings)
+    snap = deck.snapshot()
+    assert (snap.get("bag") or {}).get("state") == "running"
+    refused = deck.start_run("/tmp/another-repo", True)
+    assert refused["ok"] is False
+    assert "bag" in (refused.get("error") or "")
+    bag_refused = deck.start_bag(dry=True)
+    assert bag_refused["ok"] is False
+
+
+def test_deck_cmm_and_bag_endpoints(tmp_path, ns_home):
+    settings = Settings(
+        mock=True, observe=False, home=ns_home, deck_port=0, roots=[tmp_path]
+    )
+    httpd = serve_deck(settings, demo=True)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = httpd.server_address[:2]
+        base = f"http://{host}:{port}"
+        bag = _get(base + "/api/bag")
+        assert "targets" in bag
+        forum = _get(base + "/api/forum")
+        assert "nights" in forum
+        cmm = _get(base + "/api/cmm")
+        assert "histogram" in cmm
+        with urllib.request.urlopen(base + "/cmm", timeout=5) as resp:
+            html = resp.read().decode("utf-8")
+        assert "L0" in html
+        assert "fonts.googleapis.com" not in html
+        code, body = _post(base + "/api/bag", {"dry": True, "mock": True})
+        assert code == 200, body
+        assert body.get("ok") is True
+        assert body.get("dry") is True
     finally:
         httpd.shutdown()
         httpd.server_close()

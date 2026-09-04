@@ -1,4 +1,4 @@
-"""CLI: list, run, status, serve, morning, turns, halt, forum, cmm. Equally first-class with the command deck."""
+"""CLI: list, run, bag, status, serve, morning, turns, halt, forum, cmm. Equally first-class with the command deck."""
 
 from __future__ import annotations
 
@@ -9,6 +9,18 @@ import re
 import sys
 from pathlib import Path
 
+from .bag import (
+    assert_shift_idle,
+    bag_exit_code,
+    load_bag,
+    load_merged_status,
+    pid_alive,
+    recover_stale_bag,
+    render_bag_table,
+    run_bag,
+    save_bag,
+    select_bag,
+)
 from .cmm import histogram, population, render_cmm_md, write_cmm
 from .config import Settings
 from .deck import serve_deck
@@ -53,6 +65,9 @@ def _settings_from(args: argparse.Namespace, *, mock_default: bool | None = None
         allow_dirty=bool(getattr(args, "allow_dirty", False)),
         dry_run=bool(getattr(args, "dry_run", False)),
         job_turns=getattr(args, "job_turns", None),
+        bag_size=getattr(args, "size", None),
+        skip_meta=bool(getattr(args, "skip_meta", False)),
+        meta_last=bool(getattr(args, "meta_last", False)),
     )
 
 
@@ -90,6 +105,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     if settings.dry_run:
         brief = dry_run_brief(Path(args.repo), settings, explicit=True)
         return _print_dry_run(brief, as_json=bool(getattr(args, "json", False)))
+    recover_stale_bag(settings.state_dir())
+    assert_shift_idle(settings.state_dir(), allow_self=False)
     report = run_night(Path(args.repo), settings, explicit=True)
     print(f"branch\t{report.branch}")
     print(f"halt\t{report.halt_reason}")
@@ -135,25 +152,43 @@ def cmd_status(args: argparse.Namespace) -> int:
                 ).to_dict()
             except PermissionError:
                 pass
-    if snap.get("state") == "idle" and not snap.get("repo"):
+    want_bag = bool(getattr(args, "bag", False))
+    if getattr(args, "json", False):
+        print(json.dumps(load_merged_status(settings.state_dir()) if want_bag else snap, indent=2))
+        return 0
+    idle_night = snap.get("state") == "idle" and not snap.get("repo")
+    if idle_night and not want_bag:
         print("no overnight run recorded")
         return 1
-    if getattr(args, "json", False):
-        print(json.dumps(snap, indent=2))
-        return 0
-    print(f"state     {snap.get('state')}")
-    print(f"repo      {snap.get('repo')}")
-    print(f"branch    {snap.get('branch')}")
-    print(f"brain     {snap.get('brain')}")
-    print(f"turn      {snap.get('turn')}")
-    print(f"remaining {snap.get('remaining_count')}")
-    print(f"halt      {snap.get('halt_reason')}")
-    print(f"updated   {snap.get('updated_at')}")
-    last = snap.get("last_check") or {}
-    if last.get("command"):
-        print(f"check     exit {last.get('exit_code')}  {last.get('command')}")
-    if snap.get("state") == "error" and snap.get("error"):
-        print(f"error     {snap.get('error')}")
+    if idle_night:
+        print("no overnight run recorded")
+    else:
+        print(f"state     {snap.get('state')}")
+        print(f"repo      {snap.get('repo')}")
+        print(f"branch    {snap.get('branch')}")
+        print(f"brain     {snap.get('brain')}")
+        print(f"turn      {snap.get('turn')}")
+        print(f"remaining {snap.get('remaining_count')}")
+        print(f"halt      {snap.get('halt_reason')}")
+        print(f"updated   {snap.get('updated_at')}")
+        last = snap.get("last_check") or {}
+        if last.get("command"):
+            print(f"check     exit {last.get('exit_code')}  {last.get('command')}")
+        if snap.get("state") == "error" and snap.get("error"):
+            print(f"error     {snap.get('error')}")
+    if want_bag:
+        recover_stale_bag(settings.state_dir())
+        bag = load_bag(settings.state_dir())
+        print(f"bag       {bag.get('state') or 'none'}")
+        print(f"bag_id    {bag.get('bag_id') or ''}")
+        print(f"halt_bag  {str(bool(bag.get('halt_bag'))).lower()}")
+        for t in bag.get("targets") or []:
+            if not isinstance(t, dict):
+                continue
+            print(
+                f"target    {t.get('role') or ''}  {t.get('state') or ''}  "
+                f"{t.get('name') or ''}  {t.get('halt_reason') or t.get('error') or ''}"
+            )
     return 0
 
 
@@ -310,14 +345,43 @@ def cmd_turns(args: argparse.Namespace) -> int:
 
 def cmd_halt(args: argparse.Namespace) -> int:
     settings = _settings_from(args)
-    board = StatusBoard(settings.state_dir())
+    home = settings.state_dir()
+    recover_stale_bag(home)
+    bag = load_bag(home)
+    bag_live = bag.get("state") == "running" and pid_alive(bag.get("runner_pid"))
+    board = StatusBoard(home)
     snap = board.snapshot()
-    if snap.get("state") != "running" or not snap.get("runner_pid"):
+    night_live = snap.get("state") == "running" and snap.get("runner_pid")
+    if not bag_live and not night_live:
         print("no shift running", file=sys.stderr)
         return 1
-    request_halt(settings.state_dir(), int(snap["runner_pid"]))
-    print(f"halt requested after turn {snap.get('turn') or 0}")
+    if bag_live:
+        bag["halt_bag"] = True
+        save_bag(home, bag)
+    if night_live:
+        request_halt(home, int(snap["runner_pid"]))
+        print(f"halt requested after turn {snap.get('turn') or 0}")
+    else:
+        print("halt requested for bag")
     return 0
+
+
+def cmd_bag(args: argparse.Namespace) -> int:
+    settings = _settings_from(args)
+    plan = select_bag(
+        settings,
+        size=getattr(args, "size", None),
+        skip_meta=bool(getattr(args, "skip_meta", False)) or None,
+        meta_last=bool(getattr(args, "meta_last", False)),
+    )
+    print(render_bag_table(plan))
+    if not plan.targets:
+        return 1
+    if not bool(getattr(args, "run", False)):
+        return 0
+    result = run_bag(plan, settings)
+    print(f"bag_state\t{result.get('state')}")
+    return bag_exit_code(result)
 
 
 def cmd_forum(args: argparse.Namespace) -> int:
@@ -399,7 +463,25 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_status = sub.add_parser("status", help="print the last/current shift")
     p_status.add_argument("--json", action="store_true", help="full status.json")
+    p_status.add_argument("--bag", action="store_true", help="also print bag.json (merged with --json)")
     p_status.set_defaults(func=cmd_status)
+
+    p_bag = sub.add_parser("bag", help="select tonight's targets, or --run them sequentially")
+    p_bag.add_argument("--run", action="store_true", help="take the bag lock and run nights in order")
+    p_bag.add_argument("--skip-meta", action="store_true", help="drop Nightshift from the candidate set")
+    p_bag.add_argument("--meta-last", action="store_true", help="put meta Nightshift at the end of the bag")
+    p_bag.add_argument("--size", type=int, help="bag size 1-3 (default 2)")
+    p_bag.add_argument("--allow-dirty", action="store_true")
+    p_bag.add_argument("--mock", action="store_true")
+    p_bag.add_argument("--roots", nargs="*")
+    p_bag.add_argument("--include-deprecated", action="store_true")
+    p_bag.add_argument("--halt-at", help="shared clock halt HH:MM (default 06:00)")
+    p_bag.add_argument("--max-turns", type=int)
+    p_bag.add_argument("--brief-size", type=int)
+    p_bag.add_argument("--job-turns", type=int)
+    p_bag.add_argument("--no-observe", action="store_true")
+    p_bag.add_argument("--push", action="store_true")
+    p_bag.set_defaults(func=cmd_bag)
 
     p_serve = sub.add_parser("serve", help="stdlib HTTP command deck")
     p_serve.add_argument("--host", default="127.0.0.1")

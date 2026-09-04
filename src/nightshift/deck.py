@@ -11,7 +11,21 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from .bag import (
+    acquire_bag,
+    assert_shift_idle,
+    load_bag,
+    load_merged_status,
+    pid_alive,
+    plan_to_dict,
+    recover_stale_bag,
+    run_bag,
+    save_bag,
+    select_bag,
+)
+from .cmm import histogram, population, render_cmm_html, write_cmm
 from .config import Settings
+from .forum import load_forum
 from .models import BRIEF_SIZE_MAX, BRIEF_SIZE_MIN, FrozenBriefError, SafetyError
 from .demo import seed_widget
 from .repos import find_repos
@@ -68,7 +82,8 @@ class DeckState:
 
     def snapshot(self) -> dict[str, Any]:
         with self._run_lock:
-            return self._reconcile_status_locked().to_dict()
+            self._reconcile_status_locked()
+            return load_merged_status(self.settings.state_dir())
 
     def repos(self, include_deprecated: bool) -> list[dict[str, Any]]:
         return [
@@ -115,6 +130,11 @@ class DeckState:
             job_turns=self.settings.job_turns,
             allow_dirty=allow_dirty,
             dry_run=dry_run,
+            bag_size=self.settings.bag_size,
+            skip_meta=self.settings.skip_meta,
+            meta_last=self.settings.meta_last,
+            bag_min_minutes=self.settings.bag_min_minutes,
+            forum_enabled=self.settings.forum_enabled,
         )
 
     def start_run(
@@ -138,6 +158,15 @@ class DeckState:
         with self._run_lock:
             if self._reconcile_status_locked().state == "running":
                 return {"ok": False, "error": "a shift is already running"}
+            if not dry_run:
+                home = self.settings.state_dir()
+                recover_stale_bag(home)
+                try:
+                    assert_shift_idle(home, allow_self=False)
+                except SafetyError as exc:
+                    return {"ok": False, "error": str(exc)}
+                if self._thread is not None and self._thread.is_alive():
+                    return {"ok": False, "error": "a shift is already running"}
             target = assert_safe_target(Path(path), explicit=True)
             if dry_run:
                 brief = dry_run_brief(target, settings, explicit=True)
@@ -166,13 +195,104 @@ class DeckState:
             self._thread.start()
         return {"ok": True, "repo": path, "mock": settings.mock, "brief_size": size}
 
+    def start_bag(
+        self,
+        *,
+        dry: bool = True,
+        size: int | None = None,
+        skip_meta: bool = False,
+        meta_last: bool = False,
+        mock: bool | None = None,
+        allow_dirty: bool = False,
+        brief_size: int | None = None,
+    ) -> dict[str, Any]:
+        from .models import clamp_brief_size
+
+        jobs = clamp_brief_size(
+            brief_size if brief_size is not None else self.settings.brief_size
+        )
+        settings = self._copy_settings(
+            mock=mock, brief_size=jobs, allow_dirty=allow_dirty, dry_run=dry
+        )
+        if skip_meta:
+            settings.skip_meta = True
+        if meta_last:
+            settings.meta_last = True
+        with self._run_lock:
+            if self._reconcile_status_locked().state == "running":
+                return {"ok": False, "error": "a shift is already running"}
+            home = self.settings.state_dir()
+            recover_stale_bag(home)
+            try:
+                assert_shift_idle(home, allow_self=False)
+            except SafetyError as exc:
+                return {"ok": False, "error": str(exc)}
+            if self._thread is not None and self._thread.is_alive():
+                return {"ok": False, "error": "a shift is already running"}
+            try:
+                plan = select_bag(
+                    settings, size=size, skip_meta=skip_meta or None, meta_last=meta_last
+                )
+            except SafetyError as exc:
+                return {"ok": False, "error": str(exc)}
+            if dry:
+                return {"ok": True, "dry": True, "bag": plan_to_dict(plan)}
+            if not plan.targets:
+                return {"ok": False, "error": "no targets"}
+            acquire_bag(
+                home,
+                {
+                    **plan_to_dict(plan),
+                    "state": "running",
+                    "runner_pid": os.getpid(),
+                    "halt_bag": False,
+                    "mock": settings.mock,
+                    "brief_size": jobs,
+                },
+            )
+
+            def _go() -> None:
+                try:
+                    run_bag(plan, settings)
+                except Exception as exc:
+                    self.board.update(
+                        state="error",
+                        runner_pid=None,
+                        error=str(exc),
+                        brain="",
+                    )
+
+            self._thread = threading.Thread(target=_go, daemon=True)
+            self._thread.start()
+        return {"ok": True, "dry": False, "bag_id": plan.bag_id, "mock": settings.mock, "brief_size": jobs}
+
+    def cmm_snapshot(self) -> dict[str, Any]:
+        home = self.settings.state_dir()
+        snap = histogram(
+            population(self.settings),
+            load_forum(home),
+            home=home,
+            roots=self.settings.roots,
+        )
+        write_cmm(home, snap)
+        return snap
+
     def request_halt(self) -> dict[str, Any]:
         with self._run_lock:
+            home = self.settings.state_dir()
+            recover_stale_bag(home)
+            bag = load_bag(home)
+            bag_live = bag.get("state") == "running" and pid_alive(bag.get("runner_pid"))
             status = self._reconcile_status_locked()
-            if status.state != "running" or not status.runner_pid:
+            night_live = status.state == "running" and status.runner_pid
+            if not bag_live and not night_live:
                 return {"ok": False, "error": "no shift running"}
-            request_halt(self.settings.state_dir(), int(status.runner_pid))
-            self.board.update(halt_requested=True)
+            if bag_live:
+                bag["halt_bag"] = True
+                save_bag(home, bag)
+            if night_live:
+                request_halt(home, int(status.runner_pid))
+                self.board.update(halt_requested=True)
             return {"ok": True, "after_turn": status.turn}
 
 
@@ -210,6 +330,20 @@ def make_handler(deck: DeckState):
             if parsed.path == "/api/status":
                 self._json(200, deck.snapshot())
                 return
+            if parsed.path == "/api/bag":
+                bag = load_bag(deck.settings.state_dir())
+                self._json(200, bag if bag else {"targets": []})
+                return
+            if parsed.path == "/api/forum":
+                self._json(200, load_forum(deck.settings.state_dir()))
+                return
+            if parsed.path == "/api/cmm":
+                self._json(200, deck.cmm_snapshot())
+                return
+            if parsed.path == "/cmm":
+                html = render_cmm_html(deck.cmm_snapshot()).encode("utf-8")
+                self._send(200, html, "text/html; charset=utf-8")
+                return
             if parsed.path == "/api/config":
                 self._json(
                     200,
@@ -246,6 +380,40 @@ def make_handler(deck: DeckState):
                 return
             if parsed.path == "/api/halt":
                 result = deck.request_halt()
+                self._json(200 if result.get("ok") else 409, result)
+                return
+            if parsed.path == "/api/bag":
+                mock = payload.get("mock")
+                brief_size = payload.get("brief_size", None)
+                if brief_size is not None:
+                    try:
+                        brief_size = int(brief_size)
+                    except (TypeError, ValueError) as exc:
+                        self._json(400, {"error": str(exc)})
+                        return
+                size = payload.get("size", None)
+                if size is not None:
+                    try:
+                        size = int(size)
+                    except (TypeError, ValueError) as exc:
+                        self._json(400, {"error": str(exc)})
+                        return
+                try:
+                    result = deck.start_bag(
+                        dry=bool(payload.get("dry", True)),
+                        size=size,
+                        skip_meta=bool(payload.get("skip_meta")),
+                        meta_last=bool(payload.get("meta_last")),
+                        mock=mock if isinstance(mock, bool) else None,
+                        allow_dirty=bool(payload.get("allow_dirty")),
+                        brief_size=brief_size,
+                    )
+                except FrozenBriefError as exc:
+                    self._json(400, {"error": str(exc)})
+                    return
+                except SafetyError as exc:
+                    self._json(409, {"ok": False, "error": str(exc)})
+                    return
                 self._json(200 if result.get("ok") else 409, result)
                 return
             if parsed.path == "/api/run":

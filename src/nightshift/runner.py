@@ -42,7 +42,7 @@ from .ledger import (
 )
 from .llm import Critic, MockChatClient, OpenAICompatClient, Writer, persist_meta, probe_models
 from .models import Brief, SafetyError
-from .observe import attach, finish, log, metric, ralph_loop, start as observe_start
+from .observe import attach, finish, log, metric, ralph_loop, start as observe_start, stop_active
 from .safety import assert_clean_tree, assert_safe_target
 from .status import StatusBoard, clear_halt, halt_requested
 from .summary import date_from_branch, halt_words, night_view, render_markdown, write_summary_file
@@ -544,8 +544,17 @@ def _iso_seconds(value: Any) -> str:
         return str(value or "")
 
 
-def run_night(repo: Path, settings: Settings, *, explicit: bool = True) -> NightReport:
+def run_night(
+    repo: Path,
+    settings: Settings,
+    *,
+    explicit: bool = True,
+    allow_self_bag: bool = False,
+) -> NightReport:
     target = assert_safe_target(repo, explicit=explicit)
+    from .bag import assert_run_night_idle
+
+    assert_run_night_idle(settings.state_dir(), allow_self_bag=allow_self_bag)
     board = StatusBoard(settings.state_dir())
     clock = settings.now_fn
     parse_halt_at(settings.halt_at)
@@ -613,54 +622,39 @@ def run_night(repo: Path, settings: Settings, *, explicit: bool = True) -> Night
     board.update(branch=branch)
     jsonl = target / ".nightshift" / "events.jsonl"
     jsonl.parent.mkdir(parents=True, exist_ok=True)
-    scope = None
     if settings.observe:
-        scope = observe_start(
+        observe_start(
             open_browser=settings.open_browser,
             jsonl=str(jsonl),
             port=settings.loopscope_port,
         )
-    nodes = LoopNodes(ctx)
-    app = build_cycle_app(nodes)
     try:
-        state = persist_brief(ctx, brief)
-    except Exception as exc:
-        porcelain = git(target, "status", "--porcelain", check=False).stdout
-        dirty = [
-            ln
-            for ln in porcelain.splitlines()
-            if ln.strip()
-            and ".nightshift/" not in ln
-            and not any(p in ln for p in ctx.preexisting)
-        ]
-        if not commits_since(target, base_sha) and not dirty:
-            git(target, "checkout", base_ref, check=False)
-            msg = f"{exc}; returned to {base_ref}; empty branch {branch} left, delete with git branch -d {branch}"
-            board.update(state="error", runner_pid=None, error=msg, brain="", branch=branch)
-            raise SafetyError(msg) from exc
-        board.update(state="error", runner_pid=None, error=str(exc), brain="")
-        raise
-    halt_reason = ""
-    loop = ralph_loop(
-        "overnight remaining_count",
-        phases=["critic_job", "writer", "host_check", "critic_score"],
-        max_iters=settings.max_turns,
-        stall_after=settings.stall_after,
-        roles={
-            "critic_job": "one-line job from the frozen brief",
-            "writer": "edit files on the night branch",
-            "host_check": "run the real check commands",
-            "critic_score": "score, slash, revert gold-plating",
-        },
-    )
-    config: dict[str, Any] = {}
-    used_ralph_attach = False
-    if app is not None and hasattr(loop, "attach_graph"):
-        config = loop.attach_graph(app)
-        used_ralph_attach = True
-    elif app is not None:
-        config = attach(
-            app,
+        nodes = LoopNodes(ctx)
+        app = build_cycle_app(nodes)
+        try:
+            state = persist_brief(ctx, brief)
+        except Exception as exc:
+            porcelain = git(target, "status", "--porcelain", check=False).stdout
+            dirty = [
+                ln
+                for ln in porcelain.splitlines()
+                if ln.strip()
+                and ".nightshift/" not in ln
+                and not any(p in ln for p in ctx.preexisting)
+            ]
+            if not commits_since(target, base_sha) and not dirty:
+                git(target, "checkout", base_ref, check=False)
+                msg = f"{exc}; returned to {base_ref}; empty branch {branch} left, delete with git branch -d {branch}"
+                board.update(state="error", runner_pid=None, error=msg, brain="", branch=branch)
+                raise SafetyError(msg) from exc
+            board.update(state="error", runner_pid=None, error=str(exc), brain="")
+            raise
+        halt_reason = ""
+        loop = ralph_loop(
+            "overnight remaining_count",
+            phases=["critic_job", "writer", "host_check", "critic_score"],
+            max_iters=settings.max_turns,
+            stall_after=settings.stall_after,
             roles={
                 "critic_job": "one-line job from the frozen brief",
                 "writer": "edit files on the night branch",
@@ -668,169 +662,186 @@ def run_night(repo: Path, settings: Settings, *, explicit: bool = True) -> Night
                 "critic_score": "score, slash, revert gold-plating",
             },
         )
-    try:
-        for it in loop:
-            n = int(getattr(it, "n", getattr(it, "index", 0)) or 0)
-            if halt_requested(settings.state_dir(), os.getpid()):
-                halt_reason = "requested"
-                it.done("halt requested")
-                break
-            if clock() >= deadline:
-                halt_reason = "clock"
-                it.done("clock halt")
-                break
+        config: dict[str, Any] = {}
+        used_ralph_attach = False
+        if app is not None and hasattr(loop, "attach_graph"):
+            config = loop.attach_graph(app)
+            used_ralph_attach = True
+        elif app is not None:
+            config = attach(
+                app,
+                roles={
+                    "critic_job": "one-line job from the frozen brief",
+                    "writer": "edit files on the night branch",
+                    "host_check": "run the real check commands",
+                    "critic_score": "score, slash, revert gold-plating",
+                },
+            )
+        try:
+            for it in loop:
+                n = int(getattr(it, "n", getattr(it, "index", 0)) or 0)
+                if halt_requested(settings.state_dir(), os.getpid()):
+                    halt_reason = "requested"
+                    it.done("halt requested")
+                    break
+                if clock() >= deadline:
+                    halt_reason = "clock"
+                    it.done("clock halt")
+                    break
+                if int(state.get("remaining_count") or 0) == 0:
+                    halt_reason = "remaining_zero"
+                    it.done("remaining_count 0")
+                    break
+                if state.get("halt_reason"):
+                    halt_reason = str(state["halt_reason"])
+                    it.done(halt_reason)
+                    break
+                ctx.status.update(turn=n, brain="critic")
+                if app is not None:
+                    state = app.invoke(state, config=config)
+                else:
+                    state = run_cycle(nodes, state)
+                remaining = int(state.get("remaining_count") or 0)
+                it.signal(remaining, name="remaining_count")
+                it.signal(_open_work(state), name="open_work")
+                metric("remaining_count", float(remaining))
+                log(f"turn {n} remaining_count={remaining}")
+                if remaining == 0:
+                    halt_reason = "remaining_zero"
+                    it.done("remaining_count 0")
+                    break
+            else:
+                if not halt_reason:
+                    loop_reason = str(getattr(loop, "reason", "") or "")
+                    halt_reason = "stalled" if loop_reason == "stalled" else "max_turns"
+        except Exception as exc:
+            halt_reason = halt_reason or "error"
+            brief_err: Brief | None = None
+            ledger_err: dict[str, Any] | None = None
+            try:
+                if state.get("brief"):
+                    brief_err = Brief.from_dict(state["brief"])
+                    write_summary(ctx, brief_err, "error", error=str(exc))
+                    ledger_err = _commit_ledger(ctx, brief_err, branch, state)
+            except Exception:
+                pass
+            summary_file = ctx.repo / ".nightshift" / "summary.md"
+            ctx.status.update(
+                state="error",
+                runner_pid=None,
+                error=str(exc),
+                halt_reason=halt_reason,
+                summary=summary_file.read_text(encoding="utf-8") if summary_file.is_file() else "",
+            )
+            if app is not None and not used_ralph_attach:
+                finish(config, status="error")
+            # Path (2): publish whatever exists — brief from state if any, the
+            # ledger just committed if that ran, else the rows already on disk.
+            _publish_failed_night(
+                ctx,
+                exc=exc,
+                branch=branch,
+                state=state,
+                brief=brief_err,
+                ledger=ledger_err,
+                started_at=started_at,
+            )
+            raise
+        else:
+            if app is not None and not used_ralph_attach:
+                finish(config, status="ok")
+        if not halt_reason:
             if int(state.get("remaining_count") or 0) == 0:
                 halt_reason = "remaining_zero"
-                it.done("remaining_count 0")
-                break
-            if state.get("halt_reason"):
-                halt_reason = str(state["halt_reason"])
-                it.done(halt_reason)
-                break
-            ctx.status.update(turn=n, brain="critic")
-            if app is not None:
-                state = app.invoke(state, config=config)
             else:
-                state = run_cycle(nodes, state)
-            remaining = int(state.get("remaining_count") or 0)
-            it.signal(remaining, name="remaining_count")
-            it.signal(_open_work(state), name="open_work")
-            metric("remaining_count", float(remaining))
-            log(f"turn {n} remaining_count={remaining}")
-            if remaining == 0:
-                halt_reason = "remaining_zero"
-                it.done("remaining_count 0")
-                break
-        else:
-            if not halt_reason:
                 loop_reason = str(getattr(loop, "reason", "") or "")
                 halt_reason = "stalled" if loop_reason == "stalled" else "max_turns"
-    except Exception as exc:
-        halt_reason = halt_reason or "error"
-        brief_err: Brief | None = None
-        ledger_err: dict[str, Any] | None = None
+        brief_done: Brief | None = None
         try:
-            if state.get("brief"):
-                brief_err = Brief.from_dict(state["brief"])
-                write_summary(ctx, brief_err, "error", error=str(exc))
-                ledger_err = _commit_ledger(ctx, brief_err, branch, state)
-        except Exception:
-            pass
-        summary_file = ctx.repo / ".nightshift" / "summary.md"
-        ctx.status.update(
-            state="error",
-            runner_pid=None,
-            error=str(exc),
-            halt_reason=halt_reason,
-            summary=summary_file.read_text(encoding="utf-8") if summary_file.is_file() else "",
-        )
-        if app is not None and not used_ralph_attach:
-            finish(config, status="error")
-        # Path (2): publish whatever exists — brief from state if any, the
-        # ledger just committed if that ran, else the rows already on disk.
-        _publish_failed_night(
-            ctx,
-            exc=exc,
+            brief_done = Brief.from_dict(state["brief"])
+            extra: list[str] = []
+            main_now = rev_parse(target, main_ref)
+            main_untouched = main_now == main_sha
+            if not main_untouched:
+                extra.append(f"## MAIN MOVED\n\nwas {main_sha}\nnow {main_now}")
+            summary_path = write_summary(ctx, brief_done, halt_reason, extra_header=extra)
+            ledger = _commit_ledger(ctx, brief_done, branch, state)
+        except Exception as exc:
+            # Ralph finished but the summary or the ledger commit did not. The
+            # night still has a branch with turn commits, so it is recorded as a
+            # night row (halt_reason error, never an error/<ts> stub), the board
+            # leaves "running", and the exception carries the N3 marker.
+            summary_file = ctx.repo / ".nightshift" / "summary.md"
+            ctx.status.update(
+                state="error",
+                runner_pid=None,
+                error=str(exc),
+                halt_reason=halt_reason,
+                summary=summary_file.read_text(encoding="utf-8") if summary_file.is_file() else "",
+            )
+            _publish_failed_night(
+                ctx,
+                exc=exc,
+                branch=branch,
+                state=state,
+                brief=brief_done,
+                ledger=None,
+                started_at=started_at,
+            )
+            raise
+        brief = brief_done
+        landed, voided, _open = forum.brief_counts(brief)
+        report = NightReport(
+            repo=target,
             branch=branch,
-            state=state,
-            brief=brief_err,
-            ledger=ledger_err,
-            started_at=started_at,
-        )
-        raise
-    else:
-        if app is not None and not used_ralph_attach:
-            finish(config, status="ok")
-    if not halt_reason:
-        if int(state.get("remaining_count") or 0) == 0:
-            halt_reason = "remaining_zero"
-        else:
-            loop_reason = str(getattr(loop, "reason", "") or "")
-            halt_reason = "stalled" if loop_reason == "stalled" else "max_turns"
-    brief_done: Brief | None = None
-    try:
-        brief_done = Brief.from_dict(state["brief"])
-        extra: list[str] = []
-        main_now = rev_parse(target, main_ref)
-        main_untouched = main_now == main_sha
-        if not main_untouched:
-            extra.append(f"## MAIN MOVED\n\nwas {main_sha}\nnow {main_now}")
-        summary_path = write_summary(ctx, brief_done, halt_reason, extra_header=extra)
-        ledger = _commit_ledger(ctx, brief_done, branch, state)
-    except Exception as exc:
-        # Ralph finished but the summary or the ledger commit did not. The
-        # night still has a branch with turn commits, so it is recorded as a
-        # night row (halt_reason error, never an error/<ts> stub), the board
-        # leaves "running", and the exception carries the N3 marker.
-        summary_file = ctx.repo / ".nightshift" / "summary.md"
-        ctx.status.update(
-            state="error",
-            runner_pid=None,
-            error=str(exc),
-            halt_reason=halt_reason,
-            summary=summary_file.read_text(encoding="utf-8") if summary_file.is_file() else "",
-        )
-        _publish_failed_night(
-            ctx,
-            exc=exc,
-            branch=branch,
-            state=state,
-            brief=brief_done,
-            ledger=None,
-            started_at=started_at,
-        )
-        raise
-    brief = brief_done
-    landed, voided, _open = forum.brief_counts(brief)
-    report = NightReport(
-        repo=target,
-        branch=branch,
-        main_ref=main_ref,
-        main_sha=main_sha,
-        remaining_count=brief.remaining_count,
-        halt_reason=halt_reason,
-        brief=brief,
-        summary_path=summary_path,
-        refused=list(ctx.refused),
-        base_ref=base_ref,
-        base_sha=base_sha,
-        main_untouched=main_untouched,
-        started_at=started_at,
-        ended_at=_iso_seconds(clock()),
-        mock=bool(settings.mock),
-        error="",
-        lens_hint=ctx.lens_hint,
-        landed=landed,
-        voided=voided,
-    )
-    tail_exc: BaseException | None = None
-    try:
-        summary_text = summary_path.read_text(encoding="utf-8")
-        if settings.push:
-            push_branch(target, branch)
-        ctx.status.update(
-            state="done" if halt_reason == "remaining_zero" else "halted",
-            runner_pid=None,
+            main_ref=main_ref,
+            main_sha=main_sha,
             remaining_count=brief.remaining_count,
             halt_reason=halt_reason,
-            summary=summary_text,
-            brain="",
-            branch=branch,
+            brief=brief,
+            summary_path=summary_path,
+            refused=list(ctx.refused),
+            base_ref=base_ref,
+            base_sha=base_sha,
             main_untouched=main_untouched,
-            brief=brief.to_dict(),
-            halt_requested=False,
+            started_at=started_at,
+            ended_at=_iso_seconds(clock()),
+            mock=bool(settings.mock),
+            error="",
+            lens_hint=ctx.lens_hint,
+            landed=landed,
+            voided=voided,
         )
-        clear_halt(settings.state_dir())
-    except Exception as exc:
-        # The night itself completed (ledger committed); the row records what
-        # broke after it (push, board) instead of vanishing from the forum.
-        report.error = str(exc)
-        tail_exc = exc
-        raise
+        tail_exc: BaseException | None = None
+        try:
+            summary_text = summary_path.read_text(encoding="utf-8")
+            if settings.push:
+                push_branch(target, branch)
+            ctx.status.update(
+                state="done" if halt_reason == "remaining_zero" else "halted",
+                runner_pid=None,
+                remaining_count=brief.remaining_count,
+                halt_reason=halt_reason,
+                summary=summary_text,
+                brain="",
+                branch=branch,
+                main_untouched=main_untouched,
+                brief=brief.to_dict(),
+                halt_requested=False,
+            )
+            clear_halt(settings.state_dir())
+        except Exception as exc:
+            # The night itself completed (ledger committed); the row records what
+            # broke after it (push, board) instead of vanishing from the forum.
+            report.error = str(exc)
+            tail_exc = exc
+            raise
+        finally:
+            # Path (1): after the ledger is committed, exactly once, whether or not
+            # the tail above raised. A publish failure never fails the night. The
+            # tail's exception, if any, is marked (N3) once its row is in.
+            _safe_publish(ctx, report, ledger, exc=tail_exc)
+        return report
     finally:
-        # Path (1): after the ledger is committed, exactly once, whether or not
-        # the tail above raised. A publish failure never fails the night. The
-        # tail's exception, if any, is marked (N3) once its row is in.
-        _safe_publish(ctx, report, ledger, exc=tail_exc)
-    _ = scope
-    return report
+        stop_active()
+

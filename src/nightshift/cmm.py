@@ -91,7 +91,8 @@ def package_checkout() -> Path | None:
 
     Fallback meta locator for population helpers when Nightshift is not
     under roots. Tests patch this to None (N7): a night must never run on
-    the operator's checkout from the suite. PR 5 moves it to bag.py.
+    the operator's checkout from the suite. `bag.package_checkout` is the
+    same locator for select_bag.
     """
     return _checkout_at(Path(__file__).resolve().parents[2])
 

@@ -90,6 +90,21 @@ class Settings:
     deck_port: int = field(
         default_factory=lambda: int(os.environ.get("NIGHTSHIFT_PORT", "43171"))
     )
+    bag_size: int = field(
+        default_factory=lambda: int(os.environ.get("NIGHTSHIFT_BAG_SIZE", "2"))
+    )
+    skip_meta: bool = False
+    meta_last: bool = False
+    bag_min_minutes: int = field(
+        default_factory=lambda: max(
+            0, int(os.environ.get("NIGHTSHIFT_BAG_MIN_MINUTES", "30") or "30")
+        )
+    )
+    forum_enabled: bool = field(
+        default_factory=lambda: os.environ.get("NIGHTSHIFT_FORUM", "1").strip().lower()
+        not in {"0", "false", "no", "off"}
+    )
+    bag_id: str = ""
 
     def state_dir(self) -> Path:
         self.home.mkdir(parents=True, exist_ok=True)
@@ -112,6 +127,9 @@ class Settings:
         allow_dirty: bool = False,
         dry_run: bool = False,
         job_turns: int | None = None,
+        bag_size: int | None = None,
+        skip_meta: bool = False,
+        meta_last: bool = False,
     ) -> "Settings":
         s = cls()
         if roots:
@@ -136,9 +154,23 @@ class Settings:
         s.dry_run = bool(dry_run)
         if job_turns is not None:
             s.job_turns = int(job_turns)
+        if bag_size is not None:
+            s.bag_size = bag_size
+        if skip_meta:
+            s.skip_meta = True
+        if meta_last:
+            s.meta_last = True
         from .models import clamp_brief_size
 
         s.brief_size = clamp_brief_size(s.brief_size)
         if s.job_turns < 1:
             s.job_turns = 1
+        try:
+            s.bag_size = max(1, min(3, int(s.bag_size)))
+        except (TypeError, ValueError):
+            s.bag_size = 2
+        try:
+            s.bag_min_minutes = max(0, int(s.bag_min_minutes))
+        except (TypeError, ValueError):
+            s.bag_min_minutes = 30
         return s

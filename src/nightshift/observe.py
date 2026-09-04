@@ -47,6 +47,31 @@ def _try_loopscope():
 _fallback_events: list[dict[str, Any]] = []
 _fallback_lock = threading.Lock()
 _jsonl_path: Path | None = None
+_active_scope: Any = None
+_active_lock = threading.Lock()
+
+
+def stop_active() -> None:
+    """Stop the last scope started by `start`. Swallows errors so a night can end."""
+    global _active_scope
+    with _active_lock:
+        scope = _active_scope
+        _active_scope = None
+    if scope is None:
+        return
+    try:
+        stop = getattr(scope, "stop", None)
+        if callable(stop):
+            stop()
+    except Exception:
+        return
+
+
+def _set_active(scope: Any) -> Any:
+    global _active_scope
+    with _active_lock:
+        _active_scope = scope
+    return scope
 
 
 def log(text: str, level: str = "info", **payload: Any) -> None:
@@ -98,6 +123,23 @@ def rotate_events_jsonl(jsonl_path: Path) -> Path | None:
     return dest
 
 
+def _wait_port_free(host: str, port: int, timeout: float = 2.0) -> None:
+    """Give uvicorn a moment to release the bind after Dashboard.stop()."""
+    import socket
+    import time
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.bind((host, port))
+            return
+        except OSError:
+            time.sleep(0.05)
+        finally:
+            sock.close()
+
+
 def start(
     *,
     open_browser: bool = False,
@@ -108,6 +150,8 @@ def start(
 ):
     """One hook. Same shape as loopscope.start()."""
     global _jsonl_path
+    stop_active()
+    _wait_port_free(host, port)
     with _fallback_lock:
         _fallback_events.clear()
     if jsonl:
@@ -118,12 +162,18 @@ def start(
     ls = _try_loopscope()
     if ls is not None:
         try:
-            return ls.start(
-                host=host,
-                port=port,
-                open_browser=open_browser,
-                jsonl=str(_jsonl_path) if _jsonl_path else None,
-            )
+            kwargs: dict[str, Any] = {
+                "host": host,
+                "port": port,
+                "open_browser": open_browser,
+                "jsonl": str(_jsonl_path) if _jsonl_path else None,
+            }
+            # A new bus per night: the default bus keeps the first jsonl
+            # attached after Dashboard.stop(), which would NullScope night 2.
+            event_bus = getattr(ls, "EventBus", None)
+            if callable(event_bus):
+                kwargs["bus"] = event_bus()
+            return _set_active(ls.start(**kwargs))
         except Exception as exc:
             # Busy port, jsonl already attached, uvicorn glitch — the night still runs.
             _record(
@@ -133,9 +183,9 @@ def start(
                     "text": f"{exc}; continuing without a new dashboard",
                 }
             )
-            return _NullScope()
+            return _set_active(_NullScope())
     if not serve:
-        return FallbackScope(None, _jsonl_path)
+        return _set_active(FallbackScope(None, _jsonl_path))
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, fmt: str, *args: Any) -> None:
@@ -161,14 +211,14 @@ def start(
     try:
         httpd = ThreadingHTTPServer((host, port), Handler)
     except OSError:
-        return FallbackScope(None, _jsonl_path)
+        return _set_active(FallbackScope(None, _jsonl_path))
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     scope = FallbackScope(httpd, _jsonl_path)
     scope._thread = thread
     if open_browser:
         webbrowser.open(f"http://{host}:{port}")
-    return scope
+    return _set_active(scope)
 
 
 def attach(app, **kwargs):

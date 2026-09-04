@@ -57,14 +57,14 @@ Different physics. Do not point both at the same server.
 
 | Role | Machine | Default endpoint | Model | Tools |
 |---|---|---|---|---|
-| **Writer** | Spark DS4 only | `http://192.168.86.44:8000/v1` | `deepseek-v4-flash` | edit/create files inside the target repo. No network from the writer. |
+| **Writer** | Spark DS4 only | `http://192.168.86.44:8000/v1` | `auto` (first id from `/v1/models`) | edit/create files inside the target repo. No network from the writer. |
 | **Critic** | Mac oMLX only | `http://127.0.0.1:8000/v1` | `GLM-5.3-Flash-MLX-8bit` | inspect, score, slash, revert, halt. **Never writes the project body.** |
 
 OpenAI-compatible `POST /chat/completions`. Mac oMLX requires `Authorization: Bearer test`. Spark DS4 usually ignores the header.
 
 ```bash
 export NIGHTSHIFT_WRITER_BASE_URL=http://192.168.86.44:8000/v1
-export NIGHTSHIFT_WRITER_MODEL=deepseek-v4-flash
+export NIGHTSHIFT_WRITER_MODEL=auto
 export NIGHTSHIFT_CRITIC_BASE_URL=http://127.0.0.1:8000/v1
 export NIGHTSHIFT_CRITIC_MODEL=GLM-5.3-Flash-MLX-8bit
 export NIGHTSHIFT_API_KEY=test           # oMLX; Spark usually ignores Authorization

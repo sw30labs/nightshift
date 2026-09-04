@@ -24,7 +24,7 @@ class Settings:
     )
     writer_model: str = field(
         default_factory=lambda: os.environ.get(
-            "NIGHTSHIFT_WRITER_MODEL", "deepseek-v4-flash"
+            "NIGHTSHIFT_WRITER_MODEL", "auto"
         )
     )
     critic_base_url: str = field(

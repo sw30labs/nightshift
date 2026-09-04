@@ -171,6 +171,23 @@ class OpenAICompatClient:
         return completion_text(body)
 
 
+def resolve_model_id(configured: str, ids: list[str]) -> str:
+    """Map a configured model name to a live id from GET /models.
+
+    Empty ids keep the configured value (stripped). Blank / auto / * pick
+    the first served id. Exact match keeps configured; any other mismatch
+    rematches to the first served id so chat/completions hits a real model.
+    """
+    stripped = (configured or "").strip()
+    if not ids:
+        return stripped
+    if stripped.casefold() in {"", "auto", "*"}:
+        return ids[0]
+    if stripped in ids:
+        return stripped
+    return ids[0]
+
+
 def probe_models(base_url: str, api_key: str, *, timeout: float = 5) -> dict[str, Any]:
     """GET {base}/models. Raises RuntimeError on transport failure."""
     url = f"{base_url.rstrip('/')}/models"

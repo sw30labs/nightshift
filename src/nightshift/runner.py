@@ -40,7 +40,7 @@ from .ledger import (
     merge_night_into_ledger,
     save_ledger,
 )
-from .llm import Critic, MockChatClient, OpenAICompatClient, Writer, persist_meta, probe_models
+from .llm import Critic, MockChatClient, OpenAICompatClient, Writer, persist_meta, probe_models, resolve_model_id
 from .models import Brief, SafetyError
 from .observe import attach, finish, log, metric, ralph_loop, start as observe_start, stop_active
 from .safety import assert_clean_tree, assert_safe_target
@@ -246,8 +246,13 @@ def probe_brains(settings: Settings) -> None:
         if body.get("missing_ok"):
             _log(f"{role} /models 404 at {url}; continuing")
             continue
-        if ids and model not in ids:
-            _log(f"{role} model {model} not in /models at {url}; continuing")
+        resolved = resolve_model_id(model, ids)
+        if resolved != model:
+            if role == "writer":
+                settings.writer_model = resolved
+            else:
+                settings.critic_model = resolved
+            _log(f"{role} model {model!r} → {resolved!r} (served at {url})")
 
 
 def write_summary(

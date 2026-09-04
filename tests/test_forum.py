@@ -37,6 +37,16 @@ from nightshift.runner import run_night
 AINEKO = "Aineko · portfolio ledger · not a chat."
 
 
+def _run_night_unpublished(repo, settings, monkeypatch):
+    """A night with the forum off. Every run_night publishes since PR 2; the
+    tests below exercise ingest's projection from ledgers alone."""
+    monkeypatch.setenv("NIGHTSHIFT_FORUM", "0")
+    try:
+        return run_night(repo, settings, explicit=True)
+    finally:
+        monkeypatch.delenv("NIGHTSHIFT_FORUM", raising=False)
+
+
 def _item(rid: str, night: str, title: str, cmd: str, paths: list[str], **over) -> dict:
     row = {
         "id": item_id(rid, check_hash(cmd), paths),
@@ -326,13 +336,25 @@ def test_item_upsert_keeps_done_row():
     # a different repo with the same check+paths is a different row
     upsert_item(forum, _item("d00d00d00d00", "night/2026-09-04", "shlex catch", cmd, ["host.py"]))
     assert len(forum["items"]) == 3
+    # lens: only a live publish knows it. An ingest / re-projection of the same
+    # done row (lens "") never blanks a stored lens; a non-empty one replaces it.
+    lensed = _item(rid, "night/2026-09-05", "lensed", "true 3", ["c.py"], lens="de")
+    upsert_item(forum, lensed)
+    kept = upsert_item(forum, dict(lensed, lens=""))
+    assert kept["lens"] == "de" and len(forum["items"]) == 4
+    assert upsert_item(forum, dict(lensed, lens="oe"))["lens"] == "oe"
+    # a later same-key void never relabels the kept done row with its own lens
+    upsert_item(forum, dict(lensed, done=False, voided=True, night="night/2026-09-06", lens="de"))
+    assert forum["items"][3]["lens"] == "oe" and forum["items"][3]["done"] is True
 
 
 # --- ingest ------------------------------------------------------------------
 
 
-def test_ingest_mock_night_merged_only_by_git_evidence(fixture_repo, mock_settings, ns_home):
-    report = run_night(fixture_repo, mock_settings, explicit=True)
+def test_ingest_mock_night_merged_only_by_git_evidence(
+    fixture_repo, mock_settings, ns_home, monkeypatch
+):
+    report = _run_night_unpublished(fixture_repo, mock_settings, monkeypatch)
     rid = repo_id(fixture_repo)
     clone_ledger = fixture_repo / ".nightshift" / "ledger.json"
     shard = ns_home / "ledger" / f"{rid}.json"
@@ -626,9 +648,11 @@ def _dated_settings(ns_home, day: int) -> Settings:
     )
 
 
-def test_night_merged_never_treats_head_as_default(fixture_repo, mock_settings, ns_home):
+def test_night_merged_never_treats_head_as_default(
+    fixture_repo, mock_settings, ns_home, monkeypatch
+):
     git(fixture_repo, "branch", "-m", "main", "trunk")
-    report = run_night(fixture_repo, mock_settings, explicit=True)
+    report = _run_night_unpublished(fixture_repo, mock_settings, monkeypatch)
     assert current_branch(fixture_repo) == report.branch
     # no main/master/origin: no trunk to prove against, so no evidence, not HEAD
     assert strict_default_branch(fixture_repo) == ""
@@ -771,10 +795,12 @@ def test_ingest_hand_copied_ledger_without_brief_is_not_merged(fixture_repo, moc
     assert ingest_forum(ns_home, [fixture_repo])["nights"][0]["merged"] is False
 
 
-def test_ingest_skips_gone_population_path(fixture_repo, mock_settings, ns_home, tmp_path):
+def test_ingest_skips_gone_population_path(
+    fixture_repo, mock_settings, ns_home, tmp_path, monkeypatch
+):
     gone = seed_widget(tmp_path / "gone-widget")
-    run_night(gone, mock_settings, explicit=True)
-    report = run_night(fixture_repo, mock_settings, explicit=True)
+    _run_night_unpublished(gone, mock_settings, monkeypatch)
+    report = _run_night_unpublished(fixture_repo, mock_settings, monkeypatch)
     gone_rid = repo_id(gone)
     assert (ns_home / "ledger" / f"{gone_rid}.json").is_file()
     shutil.rmtree(gone)

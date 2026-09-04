@@ -154,6 +154,7 @@ class NightContext:
     interpreter: str = ""
     interpreter_source: str = ""
     turn_scratch: dict[str, Any] = field(default_factory=dict)
+    lens_hint: str = ""  # "oe" | "de" | ""; set once in freeze_brief, never on turn_scratch
 
 
 def parse_halt_at(halt_at: str) -> tuple[int, int]:
@@ -309,13 +310,35 @@ def _list_tree(repo: Path) -> list[str]:
     return tree
 
 
+def _forum_snapshot_block(forum: dict[str, Any], repo: Path) -> str:
+    """Other-repo forum excerpt for the freeze snapshot. PR3 ships the block; until then ''."""
+    try:
+        from .forum import forum_snapshot_block  # type: ignore[attr-defined]
+    except ImportError:
+        return ""
+    if not callable(forum_snapshot_block):
+        return ""
+    from .ledger import repo_id
+
+    return str(forum_snapshot_block(forum, exclude_repo_id=repo_id(repo)) or "")
+
+
 def read_snapshot(
     repo: Path,
     *,
     focus: Sequence[str] = (),
     check_command: str = "",
     max_bytes: int = 350_000,
+    home: Path | None = None,
+    forum: dict[str, Any] | None = None,
 ) -> str:
+    """Critic/writer snapshot.
+
+    `home=` merges the home ledger shard into the prior-night block on every
+    snapshot, so OE from a deleted night branch matches what freeze voids on.
+    `forum=` (freeze only; the writer never passes it) appends the ranked
+    other-repo excerpt after the ledger block.
+    """
     focus_rels = [normalize_rel(p) for p in focus if str(p).strip()]
     focus_set = set(focus_rels)
     chunks: list[str] = [f"# repo {repo}", "## git log", log_oneline(repo, 12)]
@@ -408,9 +431,13 @@ def read_snapshot(
 
     from .ledger import ledger_snapshot_block, load_ledger
 
-    block = ledger_snapshot_block(load_ledger(repo))
+    block = ledger_snapshot_block(load_ledger(repo, home=home))
     if block.strip():
         chunks.append(block.rstrip())
+    if forum is not None:
+        forum_block = _forum_snapshot_block(forum, repo)
+        if forum_block.strip():
+            chunks.append(forum_block.rstrip())
 
     used = sum(len(c) for c in chunks)
     for rel in ordered:
@@ -594,7 +621,10 @@ class LoopNodes:
         focus = list(locked.paths) if locked is not None else []
         check_command = locked.check_command if locked is not None else ""
         snapshot = read_snapshot(
-            self.ctx.repo, focus=focus, check_command=check_command
+            self.ctx.repo,
+            focus=focus,
+            check_command=check_command,
+            home=self.ctx.settings.home,  # never forum=: the writer sees no other repo
         )
         feedback = dict(state.get("job_feedback") or {})
         try:

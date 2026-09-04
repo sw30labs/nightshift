@@ -25,6 +25,9 @@ def test_dry_run_cli_writes_nothing(fixture_repo, mock_settings, ns_home, capsys
     assert not (fixture_repo / ".nightshift").exists()
     snap = StatusBoard(ns_home).snapshot()
     assert snap.get("state") in {"idle", ""} or not snap.get("repo") or snap.get("state") != "running"
+    # dry-run never publishes: no forum under home
+    assert not (ns_home / "forum.json").exists()
+    assert not (ns_home / "forum.md").exists()
 
 
 def test_dry_run_json(fixture_repo, capsys):

@@ -1,9 +1,10 @@
 """Shared forum: portfolio-grain ledger at ~/.nightshift/forum.json + forum.md.
 
-Data layer only. Nights and items are projected from ledger rows (ingest) or,
-later, from a NightReport (publish). Never from the writer. Never at freeze.
-Ingest is a latest-entry projection: `load_ledger(repo, home=)` keeps one row
-per (check_hash, paths) — historical nights for the same key are gone.
+Data layer plus publish. Nights and items are projected from ledger rows
+(ingest) or from a NightReport after halt (publish). Never from the writer.
+Never at freeze. Ingest is a latest-entry projection: `load_ledger(repo, home=)`
+keeps one row per (check_hash, paths) — historical nights for the same key are
+gone.
 """
 
 from __future__ import annotations
@@ -15,13 +16,16 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
 from .gitops import git
 from .ledger import LEDGER_REL, _entry_key, check_hash, item_id, load_ledger, night_id, repo_id
-from .models import SafetyError, normalize_rel
+from .models import Brief, SafetyError, Upgrade, normalize_rel
 from .observe import log
 from .safety import is_blocked_rel, is_nightshift_repo, resolve_repo
+
+if TYPE_CHECKING:  # runner imports forum; only the annotation needs the report type
+    from .runner import NightReport
 
 FORUM_SCHEMA = 1
 FORUM_REL = "forum.json"
@@ -271,6 +275,11 @@ def upsert_item(forum: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
 
     Do not clobber a stored done=true row with a later non-done row (same rule
     as merge_night_into_ledger): keep it, fill an empty note, raise turns.
+
+    `lens` is known only to the live publish of the night that produced the
+    row; a morning ingest and a later night's re-projection of a kept done
+    row carry no lens. An empty incoming `lens` therefore never erases a
+    stored one (like `note`); a non-empty one replaces it.
     """
     rows = forum.setdefault("items", [])
     want = item_key(row)
@@ -287,6 +296,8 @@ def upsert_item(forum: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
         merged.update(row)
         if stored.get("attempted"):
             merged["attempted"] = True
+        if not row.get("lens") and stored.get("lens"):
+            merged["lens"] = stored["lens"]
         rows[i] = merged
         return merged
     rows.append(row)
@@ -345,6 +356,68 @@ def _count_rows(rows: list[dict[str, Any]]) -> tuple[int, int, int]:
     voided = sum(1 for r in rows if r.get("voided") and not r.get("done"))
     remaining = len(rows) - landed - voided
     return landed, voided, remaining
+
+
+def brief_counts(brief: Brief | None) -> tuple[int, int, int]:
+    """Tonight's (landed, voided, remaining) from the frozen brief; zeros without one."""
+    if brief is None:
+        return 0, 0, 0
+    landed = sum(1 for u in brief.upgrades if u.done)
+    return landed, brief.void_count, brief.remaining_count
+
+
+def _row_from_upgrade(upgrade: Upgrade, night: str) -> dict[str, Any]:
+    """A ledger-shaped row for an upgrade the ledger never recorded (attempted=False)."""
+    return {
+        "title": upgrade.title,
+        "check_command": upgrade.check_command,
+        "paths": list(upgrade.paths),
+        "check_hash": check_hash(upgrade.check_command),
+        "night": night,
+        "attempted": False,
+        "done": bool(upgrade.done),
+        "voided": bool(upgrade.void),
+        "void_reason": str(upgrade.void_reason or ""),
+        "last_exit": 0,
+        "turns": 0,
+        "note": str(upgrade.note or ""),
+    }
+
+
+def items_from_brief(
+    repo_id_: str,
+    repo_name: str,
+    brief: Brief | None,
+    ledger: dict[str, Any],
+    *,
+    night: str,
+    lens: str = "",
+) -> list[dict[str, Any]]:
+    """Forum items for tonight's brief (design note N4).
+
+    Each upgrade projects from the matching clone-ledger row (`_entry_key` on
+    the unfiltered paths) when one exists — the same projection ingest uses —
+    so a done row that `merge_night_into_ledger` refused to clobber projects
+    as the older landed night, not as tonight's void. Without a row, from the
+    upgrade itself with attempted=False. Item paths/ids use the filtered set.
+    """
+    if brief is None:
+        return []
+    by_key: dict[_EntryKey, dict[str, Any]] = {}
+    for entry in ledger.get("entries") or []:
+        if isinstance(entry, dict):
+            by_key[_entry_key(entry)] = entry
+    items: list[dict[str, Any]] = []
+    for upgrade in brief.upgrades:
+        fresh = _row_from_upgrade(upgrade, night)
+        row = by_key.get(_entry_key(fresh)) or fresh
+        row_night = str(row.get("night") or "")
+        items.append(
+            item_from_ledger_row(
+                repo_id_, repo_name, row, night=row_night, lens=lens if row_night == night else ""
+            )
+        )
+    return items
 
 
 # --- git evidence ------------------------------------------------------------
@@ -624,6 +697,175 @@ def ingest_forum(
     forum = mutate_forum(home_p, _apply)
     if stats is not None:
         stats.update(counts)
+    return forum
+
+
+# --- publish (after halt, from run_night) ------------------------------------
+
+
+def reuse_events_for_night(
+    forum: dict[str, Any],
+    *,
+    repo_id_: str,
+    repo_name: str,
+    night: str,
+    items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """L4 exact-key reuse rows for tonight's non-void items. Computed only at publish.
+
+    PR3 fills this in with `forum_match`; until then no event is ever invented.
+    """
+    _ = (forum, repo_id_, repo_name, night, items)
+    return []
+
+
+def _night_row_from_report(
+    report: NightReport,
+    *,
+    repo_id_: str,
+    path: Path,
+    items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """The nights[] row of the JSON example, minus `merged` (never flipped by publish)."""
+    landed, voided, remaining = brief_counts(report.brief)
+    if report.brief is None:
+        landed, voided = _as_int(report.landed), _as_int(report.voided)
+        remaining = _as_int(report.remaining_count)
+    night = str(report.branch or "")
+    return {
+        "id": night_id(repo_id_, night),
+        "repo_id": repo_id_,
+        "repo_name": path.name,
+        "repo_path": str(path),
+        "meta": is_nightshift_repo(path),
+        "night": night,
+        "branch": night,
+        "started_at": str(report.started_at or ""),
+        "ended_at": str(report.ended_at or ""),
+        "halt_reason": str(report.halt_reason or ""),
+        "base_ref": str(report.base_ref or ""),
+        "base_sha": str(report.base_sha or ""),
+        "main_untouched": bool(report.main_untouched),
+        "landed": landed,
+        "voided": voided,
+        "remaining": remaining,
+        "error": clip(report.error),
+        "mock": bool(report.mock),
+        "brief_size": len(report.brief.upgrades) if report.brief is not None else 0,
+        "lens_hint": str(report.lens_hint or ""),
+        "item_ids": [i["id"] for i in items],
+    }
+
+
+def publish_night(*, home: Path, report: NightReport, ledger: dict[str, Any]) -> dict[str, Any]:
+    """Paths (1)-(2): upsert tonight's night row + items, then reuse events.
+
+    `report.brief` may be None (crash before a brief: no items). Never calls
+    Brief.freeze([]). `merged` is set False only on a new row; an existing
+    True is never clobbered and never flipped here. Saves forum.json + forum.md
+    under forum.lock and logs one line.
+    """
+    home_p = Path(home)
+    path = resolve_repo(Path(report.repo))
+    rid = repo_id(path)
+    night = str(report.branch or "")
+    items = items_from_brief(
+        rid, path.name, report.brief, ledger, night=night, lens=str(report.lens_hint or "")
+    )
+    row = _night_row_from_report(report, repo_id_=rid, path=path, items=items)
+
+    def _apply(forum: dict[str, Any]) -> dict[str, Any]:
+        for item in items:
+            upsert_item(forum, item)
+        stored = upsert_night(forum, row)
+        stored.setdefault("merged", False)
+        stored.setdefault("merged_by", "")
+        for event in reuse_events_for_night(
+            forum, repo_id_=rid, repo_name=path.name, night=night, items=items
+        ):
+            upsert_reuse(forum, event)
+        return forum
+
+    forum = mutate_forum(home_p, _apply)
+    log(
+        f"forum published {path.name} {night or '(no branch)'} {row['halt_reason']}"
+        f" landed {row['landed']} void {row['voided']} open {row['remaining']}"
+        f" items {len(items)}"
+    )
+    return forum
+
+
+def publish_error_stub(
+    *,
+    home: Path,
+    repo: Path,
+    error: str,
+    mock: bool = False,
+    started_at: str = "",
+    bag_id: str = "",
+) -> dict[str, Any]:
+    """Path (3) only: freeze failed, still on base. No NightReport, no Brief, no items.
+
+    Appends forum.errors[] and upserts a night stub keyed `error/<started_at>`
+    (design note N1) with branch "", halt_reason "error", item_ids []. The
+    stub never counts as a freeze (L1 ignores error + no items).
+    """
+    home_p = Path(home)
+    path = resolve_repo(Path(repo))
+    rid = repo_id(path)
+    at = _utc_now()
+    stamp = str(started_at or "").strip() or at
+    night = f"error/{stamp}"
+    err = clip(error)
+    meta = is_nightshift_repo(path)
+    stub = {
+        "id": night_id(rid, night),
+        "repo_id": rid,
+        "repo_name": path.name,
+        "repo_path": str(path),
+        "meta": meta,
+        "night": night,
+        "branch": "",
+        "started_at": stamp,
+        "ended_at": at,
+        "halt_reason": "error",
+        "base_ref": "",
+        "base_sha": "",
+        "main_untouched": True,
+        "landed": 0,
+        "voided": 0,
+        "remaining": 0,
+        "error": err,
+        "mock": bool(mock),
+        "brief_size": 0,
+        "lens_hint": "",
+        "item_ids": [],
+    }
+    entry = {
+        "at": at,
+        "repo_id": rid,
+        "repo_name": path.name,
+        "repo_path": str(path),
+        "error": err,
+        "bag_id": str(bag_id or ""),
+        "night": night,
+    }
+
+    def _apply(forum: dict[str, Any]) -> dict[str, Any]:
+        errors = forum.setdefault("errors", [])
+        for i, stored in enumerate(errors):
+            if (str(stored.get("repo_id") or ""), str(stored.get("night") or "")) == (rid, night):
+                errors[i] = {**stored, **entry}
+                break
+        else:
+            errors.append(entry)
+        row = upsert_night(forum, stub)
+        row.setdefault("merged", False)
+        row.setdefault("merged_by", "")
+        return forum
+
+    forum = mutate_forum(home_p, _apply)
+    log(f"forum published {path.name} {night} error: {clip(err, 120)}")
     return forum
 
 

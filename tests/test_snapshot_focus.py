@@ -86,6 +86,71 @@ def test_job_files_survive_writer_cut(tmp_path: Path):
     assert "## job file .env" not in snap3
 
 
+def test_home_only_ledger_entry_appears_with_home(fixture_repo, ns_home):
+    save_ledger(
+        fixture_repo,
+        {
+            "entries": [
+                {
+                    "title": "quote host checks with shlex",
+                    "check_command": "pytest tests/test_host.py -q",
+                    "paths": ["host.py"],
+                    "check_hash": "abc123abc123",
+                    "night": "night/2026-09-01",
+                    "attempted": True,
+                    "done": True,
+                    "voided": False,
+                    "void_reason": "",
+                    "last_exit": 0,
+                    "turns": 1,
+                }
+            ]
+        },
+        home=ns_home,
+    )
+    # the night branch is gone: only the home shard remembers the row
+    (fixture_repo / ".nightshift" / "ledger.json").unlink()
+    assert not (fixture_repo / ".nightshift" / "ledger.json").exists()
+    with_home = read_snapshot(fixture_repo, home=ns_home)
+    assert "## Prior night ledger" in with_home
+    assert "quote host checks with shlex" in with_home
+    without = read_snapshot(fixture_repo)
+    assert "## Prior night ledger" not in without
+    assert "quote host checks with shlex" not in without
+    # forum= is freeze-only and lands in PR 3; passing it must not break the snapshot
+    assert "quote host checks with shlex" in read_snapshot(fixture_repo, home=ns_home, forum={})
+
+
+def test_writer_node_passes_home_not_forum(fixture_repo, mock_settings, ns_home, monkeypatch):
+    captured: dict = {}
+
+    def fake_snapshot(repo, **kwargs):
+        captured.update(kwargs)
+        return "# snap\n"
+
+    monkeypatch.setattr("nightshift.graph.read_snapshot", fake_snapshot)
+    brief = Brief.freeze(
+        [
+            Upgrade(1, "a", "python -m pytest tests/test_widget.py::test_add -q", ["widget.py"]),
+            Upgrade(2, "b", "true", ["README.md"]),
+        ]
+    )
+    ctx = NightContext(
+        repo=fixture_repo,
+        settings=mock_settings,
+        writer=Writer(MockChatClient("writer", fixture_repo), fixture_repo),
+        critic=Critic(MockChatClient("critic", fixture_repo), fixture_repo),
+        status=StatusBoard(ns_home),
+        clock=mock_settings.now_fn,
+        deadline=mock_settings.now_fn(),
+    )
+    LoopNodes(ctx).writer(
+        {"brief": brief.to_dict(), "job": "x", "job_upgrade_id": 1, "turn": 1, "job_feedback": {}}
+    )
+    assert captured.get("home") == ns_home
+    assert "forum" not in captured
+
+
 def test_writer_node_passes_focus(fixture_repo, mock_settings, ns_home, monkeypatch):
     captured: dict = {}
 

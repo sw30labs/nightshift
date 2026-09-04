@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .config import Settings
 from .deck import serve_deck
+from .forum import FORUM_REL, ingest_forum, load_forum, render_forum_md
 from .gitops import git, rev_parse
 from .graph import load_turns
 from .host import resolve_interpreter
@@ -88,10 +89,12 @@ def cmd_run(args: argparse.Namespace) -> int:
     print(f"main\t{report.main_ref} {report.main_sha}")
     print(f"base\t{report.base_ref} {report.base_sha}")
     print(f"main_untouched\t{str(report.main_untouched).lower()}")
-    landed = sum(1 for u in report.brief.upgrades if u.done)
+    upgrades = report.brief.upgrades if report.brief is not None else ()
+    landed = sum(1 for u in upgrades if u.done)
+    voided = sum(1 for u in upgrades if u.void)
     print(
-        f"verdict\t{landed} of {len(report.brief.upgrades)} landed · "
-        f"{report.brief.void_count} void · {report.remaining_count} open"
+        f"verdict\t{landed} of {len(upgrades)} landed · "
+        f"{voided} void · {report.remaining_count} open"
     )
     print(f"land\tgit checkout {report.base_ref} && git merge --no-ff {report.branch}")
     print(f"drop\tgit branch -D {report.branch}")
@@ -274,6 +277,33 @@ def cmd_halt(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_forum(args: argparse.Namespace) -> int:
+    """`nightshift forum` prints forum.md regenerated from forum.json; `--json` the file; `ingest` projects ledgers."""
+    settings = _settings_from(args)
+    if getattr(args, "forum_cmd", None) == "ingest":
+        repos = [
+            Path(r.path)
+            for r in find_repos(settings.roots, include_deprecated=settings.include_deprecated)
+        ]
+        stats: dict[str, int] = {}
+        ingest_forum(settings.state_dir(), repos, stats=stats)
+        print(
+            f"repos {stats.get('repos', 0)}  nights {stats.get('nights', 0)}  "
+            f"items {stats.get('items', 0)}  orphans {stats.get('orphans', 0)}"
+        )
+        return 0
+    home = settings.home
+    if not (home / FORUM_REL).is_file():
+        print("no forum yet", file=sys.stderr)
+        return 1
+    forum = load_forum(home)
+    if getattr(args, "json", False):
+        print(json.dumps(forum, indent=2))
+    else:
+        print(render_forum_md(forum, home=home), end="")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="nightshift",
@@ -330,6 +360,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_halt = sub.add_parser("halt", help="stop the running shift after the current turn")
     p_halt.set_defaults(func=cmd_halt)
+
+    p_forum = sub.add_parser("forum", help="portfolio forum: print forum.md, --json, or ingest")
+    p_forum.add_argument("--json", action="store_true", help="print forum.json")
+    p_forum.set_defaults(func=cmd_forum, forum_cmd=None)
+    forum_sub = p_forum.add_subparsers(dest="forum_cmd")
+    p_forum_ingest = forum_sub.add_parser(
+        "ingest", help="latest-entry projection of clone + home ledgers under roots"
+    )
+    p_forum_ingest.add_argument("--roots", nargs="*", help="override NIGHTSHIFT_ROOTS / ~/REPOS")
+    p_forum_ingest.add_argument("--include-deprecated", action="store_true")
+    p_forum_ingest.set_defaults(func=cmd_forum)
 
     return parser
 

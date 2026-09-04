@@ -15,9 +15,11 @@ Sometimes the freeze is DE. Sometimes it is run-logs. Never both as fake checkbo
 
 Cross-repo state lives in a **shared forum**, not only in per-clone silos. The **CMM atlas** is a histogram of maturity over that forum: where each project sits, how it moved, what transferred.
 
-Editorial rendering (stone / rust, Aineko on the header): [docs/roadmap-loop.html](docs/roadmap-loop.html) · [docs/roadmap-cmm.html](docs/roadmap-cmm.html)
+Editorial rendering (stone / rust, Aineko on the header): [docs/roadmap-loop.html](docs/roadmap-loop.html) · [docs/readme-bag.html](docs/readme-bag.html) · [docs/roadmap-cmm.html](docs/roadmap-cmm.html)
 
 ![Overnight RSI](docs/roadmap-loop.png)
+
+![Tonight's bag](docs/readme-bag.png)
 
 ```mermaid
 flowchart LR
@@ -62,7 +64,11 @@ flowchart LR
   L3[L3 ledger memory]
   L4[L4 forum reuse]
   L5[L5 meta RSI]
-  L0 --> L1 --> L2 --> L3 --> L4 --> L5
+  L0 --> L1
+  L1 --> L2
+  L1 -.-> L3
+  L2 --> L4
+  L2 -.-> L5
 ```
 
 | Level | Name | Evidence |

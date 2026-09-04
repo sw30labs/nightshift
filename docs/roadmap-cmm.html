@@ -7,7 +7,11 @@ flowchart LR
   L3[L3 ledger memory]
   L4[L4 forum reuse]
   L5[L5 meta RSI]
-  L0 --> L1 --> L2 --> L3 --> L4 --> L5
+  L0 --> L1
+  L1 --> L2
+  L1 -.-> L3
+  L2 --> L4
+  L2 -.-> L5
 -->
 <html lang="en">
 <head>
@@ -52,16 +56,16 @@ flowchart LR
         <circle cx="18.6" cy="10.1" r="0.7" fill="#c44928" stroke="none"/>
       </svg>
     </div>
-    <p class="lede">The frame of the histogram. Columns stay empty until nights write evidence. Not live scores.</p>
+    <p class="lede">The frame of the histogram. Columns stay empty until nights write evidence. Not live scores. Not a chain: L3 does not require L2; L5 does not require L4.</p>
 
-    <svg class="diagram" viewBox="0 0 1040 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="roadmap-cmm-title roadmap-cmm-desc">
+    <svg class="diagram" viewBox="0 0 1040 540" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="roadmap-cmm-title roadmap-cmm-desc">
       <title id="roadmap-cmm-title">CMM atlas</title>
-      <desc id="roadmap-cmm-desc">Six capability-maturity levels from unobserved to meta RSI, drawn as empty histogram columns. No repository scores are shown.</desc>
+      <desc id="roadmap-cmm-desc">Six capability-maturity levels from unobserved to meta RSI, drawn as empty histogram columns. Skip paths: L1 to L3 without L2, L2 to L5 without L4. No repository scores are shown.</desc>
       <defs>
         <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#6f675e"/></marker>
         <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#c44928"/></marker>
       </defs>
-      <rect width="1040" height="420" fill="#e8dfd2"/>
+      <rect width="1040" height="540" fill="#e8dfd2"/>
       <line x1="56" y1="48" x2="56" y2="280" stroke="#a39a8e" stroke-width="1"/>
       <line x1="56" y1="280" x2="1000" y2="280" stroke="#a39a8e" stroke-width="1"/>
       <text x="40" y="44" fill="#a39a8e" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">REPOS</text>
@@ -86,16 +90,22 @@ flowchart LR
       <text x="904" y="304" text-anchor="middle" fill="#c44928" font-size="12" font-weight="600" font-family="'Geist', sans-serif">L5</text>
       <text x="904" y="320" text-anchor="middle" fill="#a39a8e" font-size="8" font-family="'Geist Mono', monospace">meta RSI</text>
 
-      <line x1="30" y1="356" x2="1010" y2="356" stroke="rgba(20,17,14,0.10)" stroke-width="0.8"/>
-      <text x="56" y="380" fill="#a39a8e" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
-      <rect x="160" y="368" width="16" height="12" rx="2" fill="#e8dfd2" stroke="#a39a8e" stroke-dasharray="4 3"/>
-      <text x="184" y="378" fill="#6f675e" font-size="8" font-family="'Geist Mono', monospace">empty · no nights yet</text>
-      <rect x="400" y="368" width="16" height="12" rx="2" fill="#e8dfd2" stroke="#14110e"/>
-      <text x="424" y="378" fill="#6f675e" font-size="8" font-family="'Geist Mono', monospace">level frame</text>
-      <rect x="560" y="368" width="16" height="12" rx="2" fill="rgba(196,73,40,0.10)" stroke="#c44928"/>
-      <text x="584" y="378" fill="#6f675e" font-size="8" font-family="'Geist Mono', monospace">focal · meta RSI</text>
+      <path d="M296 328 C 360 328, 390 388, 448 388 S 530 388, 600 328" fill="none" stroke="#6f675e" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+      <text x="448" y="406" text-anchor="middle" fill="#6f675e" font-size="8" font-family="'Geist Mono', monospace">L1 → L3  void-only freeze · no host_check</text>
+
+      <path d="M448 328 C 620 328, 780 438, 904 328" fill="none" stroke="#c44928" stroke-width="1.1" stroke-dasharray="4 3" marker-end="url(#arrow-accent)"/>
+      <text x="752" y="452" text-anchor="middle" fill="#c44928" font-size="8" font-family="'Geist Mono', monospace">L2 → L5  meta RSI · no forum reuse required</text>
+
+      <line x1="30" y1="478" x2="1010" y2="478" stroke="rgba(20,17,14,0.10)" stroke-width="0.8"/>
+      <text x="56" y="508" fill="#a39a8e" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+      <rect x="160" y="496" width="16" height="12" rx="2" fill="#e8dfd2" stroke="#a39a8e" stroke-dasharray="4 3"/>
+      <text x="184" y="506" fill="#6f675e" font-size="8" font-family="'Geist Mono', monospace">empty · no nights yet</text>
+      <rect x="400" y="496" width="16" height="12" rx="2" fill="#e8dfd2" stroke="#14110e"/>
+      <text x="424" y="506" fill="#6f675e" font-size="8" font-family="'Geist Mono', monospace">level frame</text>
+      <rect x="560" y="496" width="16" height="12" rx="2" fill="rgba(196,73,40,0.10)" stroke="#c44928"/>
+      <text x="584" y="506" fill="#6f675e" font-size="8" font-family="'Geist Mono', monospace">focal · meta RSI</text>
     </svg>
-    <footer>SHAPE OF THE ATLAS · NOT LIVE SCORES · EVIDENCE COMES FROM NIGHTS</footer>
+    <footer>SHAPE OF THE ATLAS · NOT LIVE SCORES · LADDER OF CAPABILITY, NOT IMPLICATION</footer>
   </main>
 </body>
 </html>

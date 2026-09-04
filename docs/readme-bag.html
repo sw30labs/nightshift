@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Nightshift · tonight's bag</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --paper: #e8dfd2; --ink: #14110e; --muted: #6f675e; --soft: #a39a8e;
+      --accent: #c44928; --accent-tint: rgba(196,73,40,0.10);
+      --sans: 'Geist', system-ui, sans-serif; --serif: 'Instrument Serif', serif;
+      --mono: 'Geist Mono', ui-monospace, monospace;
+    }
+    body { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 3rem 2rem; background: var(--paper); color: var(--ink); font-family: var(--sans); }
+    .frame { width: 100%; max-width: 1200px; }
+    .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.5rem; }
+    .eyebrow { margin-bottom: 0.5rem; color: var(--muted); font: 500 0.66rem var(--mono); letter-spacing: 0.18em; text-transform: uppercase; }
+    h1 { margin-bottom: 0.4rem; color: var(--ink); font: 400 clamp(1.5rem, 2.4vw + 0.75rem, 2rem)/1.15 var(--serif); letter-spacing: -0.02em; }
+    .lede { color: var(--muted); font: 400 14px var(--sans); margin-bottom: 1.5rem; max-width: 46rem; }
+    #aineko { width: 40px; height: 40px; flex: 0 0 40px; }
+    svg.diagram { display: block; width: 100%; min-width: 900px; }
+    footer { margin-top: 1.25rem; padding-top: 0.75rem; border-top: 1px solid rgba(20,17,14,0.12); color: var(--soft); font: 400 8px var(--mono); letter-spacing: 0.08em; }
+  </style>
+</head>
+<body>
+  <main class="frame">
+    <div class="head">
+      <div>
+        <p class="eyebrow">Nightshift · Now · Sequential bag</p>
+        <h1>Tonight’s bag</h1>
+      </div>
+      <svg id="aineko" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#c44928" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M5 18c-2.8-1.2-3.2-6 1-6.2"/>
+        <path d="M7 21c0-5 3.4-8 6.4-8h.4V21z"/>
+        <path d="M13.4 21V13c3.2 0 6 2.4 6 8z"/>
+        <circle cx="17.4" cy="10" r="3.2"/>
+        <path d="M14.8 8.4L15.5 5.2l1.7 3"/>
+        <path d="M17.8 8l1.9-3.4 1 3.6"/>
+        <circle cx="16.4" cy="10.1" r="0.7" fill="#c44928" stroke="none"/>
+        <circle cx="18.6" cy="10.1" r="0.7" fill="#c44928" stroke="none"/>
+      </svg>
+    </div>
+    <p class="lede">Eight cheap hours. One writer, one critic, two nights. The lock holds in the gap — Aineko still WATCH. A second Ralph cannot start.</p>
+
+    <svg class="diagram" viewBox="0 0 1040 640" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="bag-title bag-desc">
+      <title id="bag-title">Tonight’s bag</title>
+      <desc id="bag-desc">Night vault from 22:00 to 06:00. Meta Nightshift occupies the first arc, a portfolio night the second, slack before halt. bag.json stays running between them. Forum publishes after each halt.</desc>
+      <defs>
+        <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="0.9" fill="rgba(20,17,14,0.10)"/></pattern>
+      </defs>
+      <rect width="1040" height="640" fill="#e8dfd2"/>
+      <rect width="1040" height="640" fill="url(#dots)" opacity="0.4"/>
+
+      <!-- vault r=280 cx=520 cy=360 -->
+      <path d="M 240 360 A 280 280 0 0 1 800 360" fill="none" stroke="#a39a8e" stroke-width="1.2"/>
+
+      <!-- meta 22:00–01:00 -->
+      <path d="M 240 360 A 280 280 0 0 1 413 101" fill="none" stroke="#c44928" stroke-width="8" stroke-linecap="round"/>
+      <!-- portfolio 01:00–04:30 -->
+      <path d="M 413 101 A 280 280 0 0 1 753 204" fill="none" stroke="#14110e" stroke-width="8" stroke-linecap="round"/>
+      <!-- slack 04:30–06:00 -->
+      <path d="M 753 204 A 280 280 0 0 1 800 360" fill="none" stroke="#a39a8e" stroke-width="3" stroke-dasharray="5 6" stroke-linecap="round"/>
+
+      <!-- ticks -->
+      <circle cx="240" cy="360" r="3.2" fill="#14110e"/>
+      <text x="226" y="364" fill="#6f675e" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end">22:00</text>
+
+      <circle cx="322" cy="162" r="2.4" fill="#a39a8e"/>
+      <text x="308" y="154" fill="#a39a8e" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">00:00</text>
+
+      <circle cx="520" cy="80" r="2.4" fill="#a39a8e"/>
+      <text x="520" y="70" fill="#a39a8e" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">02:00</text>
+
+      <circle cx="718" cy="162" r="2.4" fill="#a39a8e"/>
+      <text x="736" y="154" fill="#a39a8e" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">04:00</text>
+
+      <circle cx="800" cy="360" r="3.2" fill="#c44928"/>
+      <text x="816" y="364" fill="#c44928" font-size="8" font-family="'Geist Mono', monospace">06:00 HALT</text>
+
+      <!-- segment labels on the vault -->
+      <text x="300" y="250" fill="#c44928" font-size="9" font-weight="600" font-family="Geist, sans-serif" transform="rotate(-48 300 250)">META RSI</text>
+      <text x="560" y="118" fill="#14110e" font-size="9" font-weight="600" font-family="Geist, sans-serif">PORTFOLIO</text>
+      <text x="790" y="250" fill="#a39a8e" font-size="8" font-family="'Geist Mono', monospace" transform="rotate(48 790 250)">slack</text>
+
+      <!-- lock plate -->
+      <rect x="420" y="250" width="200" height="56" rx="8" fill="#14110e"/>
+      <text x="520" y="274" text-anchor="middle" fill="#e8dfd2" font-size="11" font-weight="600" font-family="Geist, sans-serif">bag.json · running</text>
+      <text x="520" y="292" text-anchor="middle" fill="#e8dfd2" opacity="0.7" font-size="8" font-family="'Geist Mono', monospace">lock holds between nights</text>
+
+      <!-- Aineko perched on halt -->
+      <g transform="translate(808, 372) scale(1.15)" fill="none" stroke="#c44928" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 18c-2.8-1.2-3.2-6 1-6.2"/>
+        <path d="M7 21c0-5 3.4-8 6.4-8h.4V21z"/>
+        <path d="M13.4 21V13c3.2 0 6 2.4 6 8z"/>
+        <circle cx="17.4" cy="10" r="3.2"/>
+        <path d="M14.8 8.4L15.5 5.2l1.7 3"/>
+        <path d="M17.8 8l1.9-3.4 1 3.6"/>
+        <circle cx="16.4" cy="10.1" r="0.7" fill="#c44928" stroke="none"/>
+        <circle cx="18.6" cy="10.1" r="0.7" fill="#c44928" stroke="none"/>
+      </g>
+      <text x="838" y="408" fill="#c44928" font-size="7" font-family="'Geist Mono', monospace" letter-spacing="0.14em">WATCH</text>
+
+      <!-- queue cards -->
+      <rect x="80" y="430" width="280" height="88" rx="6" fill="rgba(196,73,40,0.10)" stroke="#c44928" stroke-width="1.2"/>
+      <text x="100" y="456" fill="#c44928" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.16em">1 · META</text>
+      <text x="100" y="478" fill="#14110e" font-size="14" font-weight="600" font-family="Geist, sans-serif">nightshift</text>
+      <text x="100" y="498" fill="#6f675e" font-size="8" font-family="'Geist Mono', monospace">explicit=true · RSI night</text>
+
+      <rect x="380" y="430" width="280" height="88" rx="6" fill="#e8dfd2" stroke="#14110e"/>
+      <text x="400" y="456" fill="#6f675e" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.16em">2 · PORTFOLIO</text>
+      <text x="400" y="478" fill="#14110e" font-size="14" font-weight="600" font-family="Geist, sans-serif">a CMM hole</text>
+      <text x="400" y="498" fill="#6f675e" font-size="8" font-family="'Geist Mono', monospace">explicit=false · after meta halts</text>
+
+      <rect x="680" y="430" width="280" height="88" rx="6" fill="#e8dfd2" stroke="#a39a8e" stroke-dasharray="4 3"/>
+      <text x="700" y="456" fill="#a39a8e" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.16em">FORUM</text>
+      <text x="700" y="478" fill="#14110e" font-size="14" font-weight="600" font-family="Geist, sans-serif">publish after halt</text>
+      <text x="700" y="498" fill="#6f675e" font-size="8" font-family="'Geist Mono', monospace">never the writer · never dry-run</text>
+
+      <!-- brains -->
+      <circle cx="120" cy="560" r="6" fill="#c44928"/>
+      <text x="136" y="564" fill="#14110e" font-size="10" font-weight="600" font-family="Geist, sans-serif">CRITIC · oMLX</text>
+      <circle cx="320" cy="560" r="6" fill="#14110e"/>
+      <text x="336" y="564" fill="#14110e" font-size="10" font-weight="600" font-family="Geist, sans-serif">WRITER · SPARK DS4</text>
+      <text x="560" y="564" fill="#6f675e" font-size="8" font-family="'Geist Mono', monospace">one pair · never two Ralphs · size 2 fits the 8 h window</text>
+    </svg>
+    <footer>ONE WRITER · ONE CRITIC · BAG.JSON IS THE LOCK · MAIN NEVER TOUCHED</footer>
+  </main>
+</body>
+</html>

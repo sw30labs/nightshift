@@ -27,13 +27,21 @@ Then a Ralph loop until remaining is 0, the clock (default 06:00 local), or `max
 
 Merge it, cherry-pick it, or delete it. Now / Next / Later: [ROADMAP.md](ROADMAP.md).
 
-![Nightshift command deck](docs/command-deck.png)
+![Overnight RSI — portfolio, bag, forum, CMM](docs/roadmap-loop.png)
 
-![Nightshift command deck and LoopScope during a live overnight run](docs/deck-loopscope.png)
+*The loop. Forum is the hub. Meta Nightshift is always in the bag. You still merge.*
+
+![Tonight's bag — sequential nights under one lock](docs/readme-bag.png)
+
+*Eight cheap hours. One writer, one critic, two nights. `bag.json` stays running in the gap. Aineko WATCH until 06:00.*
+
+![CMM atlas — empty columns, skip paths, not a chain](docs/roadmap-cmm.png)
+
+*Capability, not implication. L3 does not require L2. L5 does not require L4. Empty until the forum has rows.*
 
 ![Meta Nightshift / RSI](docs/rsi-graph.png)
 
-*RSI — recursive self-improvement. Orange is the night (Nightshift writing Nightshift). Blue is `main`. The bag always includes this repo unless you `--skip-meta`. You still merge.*
+*RSI in git. Orange is the night (Nightshift writing Nightshift). Blue is `main`. The bag always includes this repo unless you `--skip-meta`. You still merge.*
 
 Personal-capacity OSS. GitHub is the remote. Morning review is VS Code, not Cursor. Author: Nicolas Cravino / sw30labs.
 
@@ -112,6 +120,10 @@ nightshift serve                        # live Mac: oMLX + spark-serve ds4
 Defaults to `http://127.0.0.1:43171`. Lists git repos under `NIGHTSHIFT_ROOTS` (default `~/REPOS`; skip `DEPRECATED` unless toggled). Click one, set **JOBS** 2–5, press **Run**. Or **BAG** / **RUN BAG** for tonight's sequential queue (JOBS applies to every night in the bag). Live `remaining_count`, which brain is hot, last host-check output, LoopScope link, bag list, then `summary.md` after halt. **CMM** in the header is the local histogram. Aineko WATCH while a night or a bag is running (including the gap between bag nights). No DE/OE checkboxes.
 
 `--demo` seeds a failing `widget` repo so the list is not empty.
+
+![Nightshift command deck](docs/command-deck.png)
+
+![Nightshift command deck and LoopScope during a live overnight run](docs/deck-loopscope.png)
 
 ## CLI (equally first-class)
 

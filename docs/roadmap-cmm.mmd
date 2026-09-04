@@ -5,4 +5,8 @@ flowchart LR
   L3[L3 ledger memory]
   L4[L4 forum reuse]
   L5[L5 meta RSI]
-  L0 --> L1 --> L2 --> L3 --> L4 --> L5
+  L0 --> L1
+  L1 --> L2
+  L1 -.-> L3
+  L2 --> L4
+  L2 -.-> L5

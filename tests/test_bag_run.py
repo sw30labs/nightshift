@@ -290,6 +290,52 @@ def test_bag_exit_codes():
     assert bag_exit_code({"targets": []}) == 1
 
 
+def test_run_bag_ralph_phases_and_observe_once(tmp_path, ns_home, monkeypatch):
+    seed_widget(tmp_path / "alpha")
+    seed_widget(tmp_path / "beta")
+    (ns_home / "prior.json").write_text('{"liked": ["alpha"], "skip": []}', encoding="utf-8")
+    settings = _settings(ns_home, [tmp_path], skip_meta=True, observe=True, loopscope_port=17996)
+    plan = select_bag(settings, size=2, skip_meta=True)
+    starts: list[str] = []
+    real_start = __import__("nightshift.observe", fromlist=["start"]).start
+
+    def wrap_start(**kwargs):
+        starts.append(str(kwargs.get("jsonl") or ""))
+        return real_start(**kwargs)
+
+    monkeypatch.setattr("nightshift.bag.observe_start", wrap_start)
+    monkeypatch.setattr("nightshift.runner.observe_start", wrap_start)
+
+    def fake_run(repo, night_settings, *, explicit=True, allow_self_bag=False):
+        assert night_settings.observe is False
+        return NightReport(
+            repo=Path(repo),
+            branch="night/2026-09-04",
+            main_ref="main",
+            main_sha="abc",
+            remaining_count=0,
+            halt_reason="remaining_zero",
+            main_untouched=True,
+        )
+
+    monkeypatch.setattr("nightshift.runner.run_night", fake_run)
+    seen: list[str] = []
+    real_ralph = __import__("nightshift.observe", fromlist=["ralph_loop"]).ralph_loop
+
+    def wrap_ralph(objective, **kwargs):
+        seen.append(objective)
+        assert kwargs.get("phases") == ["select", "night", "forum"]
+        assert kwargs.get("stall_after") == 0
+        return real_ralph(objective, **kwargs)
+
+    monkeypatch.setattr("nightshift.bag.ralph_loop", wrap_ralph)
+    result = run_bag(plan, settings)
+    assert result["state"] == "done"
+    assert seen == ["tonight's bag remaining"]
+    assert len(starts) == 1
+    assert starts[0].endswith("bag-events.jsonl")
+
+
 def test_two_nights_observe_releases_port(tmp_path, ns_home, monkeypatch):
     from nightshift.observe import _NullScope
     from nightshift import observe as observe_mod

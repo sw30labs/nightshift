@@ -195,6 +195,8 @@ Self-run (Nightshift on Nightshift) is allowed only when you pick it explicitly,
 
 One hook. Nightshift does not fork LoopScope and does not wrap graph nodes.
 
+A single night is Ralph + LangGraph (`critic_job` → `writer` → `host_check` → `critic_score`). A **bag** is an outer Ralph (`select` → `night` → `forum`), one pass per target. LoopScope keeps the bag constellation; each inner night is a nested run in the feed, not a second dashboard. `:7788` is started once for the bag (`~/.nightshift/bag-events.jsonl`). Inner `run_night` does not steal the port.
+
 ```python
 import loopscope
 scope = loopscope.start(open_browser=True)
@@ -208,6 +210,7 @@ Dashboard default: `http://127.0.0.1:7788`. Overnight replay:
 
 ```bash
 python -m loopscope.replay path/to/repo/.nightshift/events.jsonl --speed 8
+python -m loopscope.replay ~/.nightshift/bag-events.jsonl --speed 8
 ```
 
 ## Mock mode

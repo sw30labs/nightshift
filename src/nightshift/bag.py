@@ -19,7 +19,7 @@ from .forum import atomic_write_json, forum_enabled, load_forum, publish_error_s
 from .gitops import current_branch, last_commit_unix
 from .ledger import repo_id
 from .models import SafetyError
-from .observe import log
+from .observe import log, ralph_loop, start as observe_start, stop_active
 from .repos import find_repos
 from .safety import is_nightshift_repo, resolve_repo, tree_state
 from .status import StatusBoard
@@ -516,6 +516,14 @@ def _safe_stub(home: Path, repo: Path, error: str, *, mock: bool, bag_id: str) -
         log(f"forum error stub failed: {exc}")
 
 
+def _queued_count(bag: dict[str, Any]) -> int:
+    return sum(
+        1
+        for t in bag.get("targets") or []
+        if isinstance(t, dict) and t.get("state") in {"queued", "running"}
+    )
+
+
 def run_bag(plan: BagPlan, settings: Settings) -> dict[str, Any]:
     from .graph import next_halt
     from .runner import run_night
@@ -528,6 +536,7 @@ def run_bag(plan: BagPlan, settings: Settings) -> dict[str, Any]:
     interrupted = False
     crashed = False
     main_touched = False
+    started_observe = False
     acquire_bag(
         home,
         _bag_document(
@@ -540,20 +549,63 @@ def run_bag(plan: BagPlan, settings: Settings) -> dict[str, Any]:
             deadline=deadline.timestamp(),
         ),
     )
+    if settings.observe:
+        observe_start(
+            open_browser=settings.open_browser,
+            jsonl=str(home / "bag-events.jsonl"),
+            port=settings.loopscope_port,
+            host="127.0.0.1",
+        )
+        started_observe = True
+        # Inner nights keep their Ralph+graph on this bus; they must not steal :7788.
+        night_settings = replace(night_settings, observe=False)
     try:
         try:
-            for i, target in enumerate(plan.targets):
+            n = len(plan.targets)
+            loop = ralph_loop(
+                "tonight's bag remaining",
+                phases=["select", "night", "forum"],
+                max_iters=max(n, 1),
+                stall_after=0,
+                roles={
+                    "select": "next target from the frozen bag",
+                    "night": "run_night on this target",
+                    "forum": "publish after halt (already done inside run_night)",
+                },
+            ) if n else iter(())
+            for it in loop:
+                i = int(getattr(it, "n", getattr(it, "index", 0)) or 0) - 1
+                if i < 0:
+                    i = 0
+                if i >= n:
+                    it.done("bag_empty")
+                    break
+                target = plan.targets[i]
                 bag = load_bag(home)
+                skip_reason = ""
                 if bag.get("halt_bag"):
-                    _patch_bag(home, lambda b: _skip_rest(b, "bag_halted"))
-                    break
-                clock = night_settings.now_fn()
-                if clock >= deadline:
-                    _patch_bag(home, lambda b: _skip_rest(b, "clock"))
-                    break
-                remaining_min = (deadline - clock).total_seconds() / 60
-                if min_minutes and remaining_min < min_minutes:
-                    _patch_bag(home, lambda b: _skip_rest(b, "clock_short"))
+                    skip_reason = "bag_halted"
+                else:
+                    clock = night_settings.now_fn()
+                    if clock >= deadline:
+                        skip_reason = "clock"
+                    else:
+                        remaining_min = (deadline - clock).total_seconds() / 60
+                        if min_minutes and remaining_min < min_minutes:
+                            skip_reason = "clock_short"
+
+                with it.phase("select") as phase:
+                    phase.log(
+                        f"{target.role} {target.name} L{target.cmm_level} {target.path}"
+                    )
+                    if skip_reason:
+                        phase.log(f"skip {skip_reason}", level="warn")
+
+                if skip_reason:
+                    _patch_bag(home, lambda b, r=skip_reason: _skip_rest(b, r))
+                    it.signal(0, name="bag_remaining")
+                    it.note(skip_reason)
+                    it.done(skip_reason)
                     break
 
                 def _mark_running(b: dict[str, Any], idx: int = i) -> None:
@@ -563,62 +615,94 @@ def run_bag(plan: BagPlan, settings: Settings) -> dict[str, Any]:
                         targets[idx]["state"] = "running"
 
                 _patch_bag(home, _mark_running)
+                report = None
                 try:
-                    report = run_night(
-                        target.path,
-                        night_settings,
-                        explicit=(target.role == "meta"),
-                        allow_self_bag=True,
-                    )
+                    with it.phase("night") as phase:
+                        phase.log(f"run_night {target.name}")
+                        try:
+                            report = run_night(
+                                target.path,
+                                night_settings,
+                                explicit=(target.role == "meta"),
+                                allow_self_bag=True,
+                            )
+                        except KeyboardInterrupt:
+                            interrupted = True
+
+                            def _halt(b: dict[str, Any]) -> None:
+                                b["halt_bag"] = True
+                                _skip_rest(b, "interrupted")
+
+                            _patch_bag(home, _halt)
+                            it.done("interrupted")
+                            raise
+                        except Exception as exc:
+                            if not getattr(exc, "nightshift_forum_published", False):
+                                _safe_stub(
+                                    home,
+                                    target.path,
+                                    str(exc),
+                                    mock=bool(night_settings.mock),
+                                    bag_id=plan.bag_id,
+                                )
+                                try:
+                                    setattr(exc, "nightshift_forum_published", True)
+                                except Exception:
+                                    pass
+
+                            def _err(
+                                b: dict[str, Any], idx: int = i, err: str = str(exc)
+                            ) -> None:
+                                targets = b.get("targets") or []
+                                if idx < len(targets) and isinstance(targets[idx], dict):
+                                    targets[idx]["state"] = "error"
+                                    targets[idx]["error"] = err
+                                    targets[idx]["halt_reason"] = "error"
+
+                            _patch_bag(home, _err)
+                            phase.log(str(exc), level="warn")
                 except KeyboardInterrupt:
                     interrupted = True
-
-                    def _halt(b: dict[str, Any]) -> None:
-                        b["halt_bag"] = True
-                        _skip_rest(b, "interrupted")
-
-                    _patch_bag(home, _halt)
                     raise
-                except Exception as exc:
-                    if not getattr(exc, "nightshift_forum_published", False):
-                        _safe_stub(
-                            home,
-                            target.path,
-                            str(exc),
-                            mock=bool(night_settings.mock),
-                            bag_id=plan.bag_id,
-                        )
-                        try:
-                            setattr(exc, "nightshift_forum_published", True)
-                        except Exception:
-                            pass
 
-                    def _err(b: dict[str, Any], idx: int = i, err: str = str(exc)) -> None:
+                with it.phase("forum") as phase:
+                    if report is None:
+                        phase.log("error stub (no NightReport)")
+                    else:
+                        phase.log(
+                            f"published {target.name} {report.halt_reason} "
+                            f"remaining {report.remaining_count}"
+                        )
+
+                if report is not None:
+                    if not report.main_untouched:
+                        main_touched = True
+
+                    def _ok(b: dict[str, Any], idx: int = i) -> None:
                         targets = b.get("targets") or []
                         if idx < len(targets) and isinstance(targets[idx], dict):
-                            targets[idx]["state"] = "error"
-                            targets[idx]["error"] = err
-                            targets[idx]["halt_reason"] = "error"
+                            row = targets[idx]
+                            row["state"] = "done"
+                            row["branch"] = report.branch
+                            row["halt_reason"] = report.halt_reason
+                            row["remaining_count"] = report.remaining_count
+                            row["error"] = report.error
+                            row["landed"] = report.landed
+                            row["voided"] = report.voided
 
-                    _patch_bag(home, _err)
-                    continue
+                    _patch_bag(home, _ok)
 
-                if not report.main_untouched:
-                    main_touched = True
-
-                def _ok(b: dict[str, Any], idx: int = i) -> None:
-                    targets = b.get("targets") or []
-                    if idx < len(targets) and isinstance(targets[idx], dict):
-                        row = targets[idx]
-                        row["state"] = "done"
-                        row["branch"] = report.branch
-                        row["halt_reason"] = report.halt_reason
-                        row["remaining_count"] = report.remaining_count
-                        row["error"] = report.error
-                        row["landed"] = report.landed
-                        row["voided"] = report.voided
-
-                _patch_bag(home, _ok)
+                remaining = _queued_count(load_bag(home))
+                it.signal(remaining, name="bag_remaining")
+                it.note(
+                    f"{target.name} "
+                    + (
+                        (report.halt_reason if report is not None else "error")
+                    )
+                )
+                if remaining == 0 or i >= n - 1:
+                    it.done("bag_done")
+                    break
         except KeyboardInterrupt:
             interrupted = True
             raise
@@ -636,6 +720,8 @@ def run_bag(plan: BagPlan, settings: Settings) -> dict[str, Any]:
                 bag["state"] = "done"
             bag["runner_pid"] = None
             save_bag(home, bag)
+        if started_observe:
+            stop_active()
     final = load_bag(home)
     return {
         "bag_id": plan.bag_id,

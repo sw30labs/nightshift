@@ -311,16 +311,11 @@ def _list_tree(repo: Path) -> list[str]:
 
 
 def _forum_snapshot_block(forum: dict[str, Any], repo: Path) -> str:
-    """Other-repo forum excerpt for the freeze snapshot. PR3 ships the block; until then ''."""
-    try:
-        from .forum import forum_snapshot_block  # type: ignore[attr-defined]
-    except ImportError:
-        return ""
-    if not callable(forum_snapshot_block):
-        return ""
+    """Ranked other-repo excerpt for the freeze snapshot; this repo's own rows are excluded."""
+    from .forum import forum_snapshot_block
     from .ledger import repo_id
 
-    return str(forum_snapshot_block(forum, exclude_repo_id=repo_id(repo)) or "")
+    return forum_snapshot_block(forum, exclude_repo_id=repo_id(repo))
 
 
 def read_snapshot(

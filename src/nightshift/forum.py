@@ -10,6 +10,7 @@ gone.
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -19,7 +20,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
 from .gitops import git
-from .ledger import LEDGER_REL, _entry_key, check_hash, item_id, load_ledger, night_id, repo_id
+from .ledger import (
+    LEDGER_REL,
+    LEDGER_SNAPSHOT_MAX,
+    _entry_key,
+    check_hash,
+    item_id,
+    load_ledger,
+    night_id,
+    repo_id,
+)
 from .models import Brief, SafetyError, Upgrade, normalize_rel
 from .observe import log
 from .safety import is_blocked_rel, is_nightshift_repo, resolve_repo
@@ -35,6 +45,14 @@ BRIEF_REL = ".nightshift/brief.json"
 TEXT_MAX = 500
 MERGED_BY_GIT = "git"
 MERGED_BY_OPERATOR = "operator"
+FORUM_BLOCK_HEADING = "## Portfolio forum (other repos)"
+FORUM_BLOCK_INSTRUCTION = (
+    "Informational only. Still emit exactly JOBS N checkable upgrades for this tree. "
+    "Do not copy foreign paths into paths[]."
+)
+TRUNCATED_MARK = "… truncated"
+REUSE_MATCH = "check_hash+paths"
+_LESSON_PREFIXES = ("failed_before", "duplicate_of_history")
 _LIST_KEYS = ("nights", "items", "reuse_events", "errors")
 _NIGHT_DATE = re.compile(r"night/(\d{4}-\d{2}-\d{2})")
 _T = TypeVar("_T")
@@ -420,6 +438,109 @@ def items_from_brief(
     return items
 
 
+# --- freeze excerpt (other repos; freeze snapshot only, never the writer) -----
+
+
+def origin_key(row: dict[str, Any]) -> _EntryKey:
+    """(check_hash, frozenset(paths)) without repo_id: the exact key that crosses repos."""
+    _, h, paths = item_key(row)
+    return h, paths
+
+
+def _one_line(text: Any, limit: int = TEXT_MAX) -> str:
+    return clip(" ".join(str(text or "").split()), limit)
+
+
+def _is_lesson(item: dict[str, Any]) -> bool:
+    return str(item.get("void_reason") or "").startswith(_LESSON_PREFIXES)
+
+
+def _excerpt_mark(item: dict[str, Any]) -> str:
+    if item.get("done"):
+        return "[done]"
+    if item.get("voided"):
+        return f"[void {_one_line(item.get('void_reason'), 120) or 'voided'}]"
+    if item.get("attempted"):
+        return "[attempted]"
+    return "[open]"
+
+
+def _excerpt_rank(forum: dict[str, Any]) -> Callable[[dict[str, Any]], tuple[bool, bool, str]]:
+    """§3 step 3, all descending: done, lesson (failed_before / duplicate_of_history), parent night ended_at."""
+    nights = {night_key(n): n for n in _dict_rows(forum.get("nights"))}
+
+    def key(item: dict[str, Any]) -> tuple[bool, bool, str]:
+        night = nights.get(night_key(item)) or {}
+        return bool(item.get("done")), _is_lesson(item), str(night.get("ended_at") or "")
+
+    return key
+
+
+def _excerpt_candidates(forum: dict[str, Any], exclude_repo_id: str) -> list[dict[str, Any]]:
+    """Other-repo items whose every path survives is_blocked_rel."""
+    out: list[dict[str, Any]] = []
+    for item in _dict_rows(forum.get("items")):
+        if str(item.get("repo_id") or "") == exclude_repo_id:
+            continue
+        if any(is_blocked_rel(p) for p in _str_list(item.get("paths"))):
+            continue
+        out.append(item)
+    return out
+
+
+def _excerpt_row(item: dict[str, Any]) -> str:
+    name = _one_line(item.get("repo_name") or item.get("repo_id") or "?", 120)
+    title = _one_line(item.get("title")) or "(untitled)"
+    row = f"- {_excerpt_mark(item)} {name}: {title}\n"
+    cmd = _one_line(item.get("check_command"))
+    if cmd:
+        row += f"  check: `{cmd}`\n"
+    return row
+
+
+def forum_snapshot_block(
+    forum: dict[str, Any],
+    *,
+    exclude_repo_id: str = "",
+    max_bytes: int = LEDGER_SNAPSHOT_MAX,
+) -> str:
+    """Ranked markdown of other repos' items for the minute-0 freeze (§3).
+
+    One row per (check_hash, paths) origin key, keeping the best row by the
+    rank tuple — never newest-first, so a later same-key void does not hide a
+    landed done row. Capped at `max_bytes`; when cut, the last line is exactly
+    "… truncated" and no row is split. "" when nothing qualifies.
+    """
+    rank = _excerpt_rank(forum)
+    best: dict[_EntryKey, dict[str, Any]] = {}
+    for item in _excerpt_candidates(forum, exclude_repo_id):
+        key = origin_key(item)
+        prev = best.get(key)
+        if prev is None or rank(item) > rank(prev):
+            best[key] = item
+    if not best:
+        return ""
+    head = f"{FORUM_BLOCK_HEADING}\n\n{FORUM_BLOCK_INSTRUCTION}\n\n"
+    rows = [_excerpt_row(item) for item in sorted(best.values(), key=rank, reverse=True)]
+    text = head + "".join(rows)
+    if len(text.encode("utf-8")) <= max_bytes:
+        return text
+    marker = TRUNCATED_MARK + "\n"
+    budget = max_bytes - len(marker.encode("utf-8"))
+    used = len(head.encode("utf-8"))
+    if used > budget:
+        cut = head.encode("utf-8")[: max(0, budget - 1)].decode("utf-8", errors="ignore")
+        return cut.rstrip("\n") + "\n" + marker
+    kept: list[str] = []
+    for row in rows:
+        size = len(row.encode("utf-8"))
+        if used + size > budget:
+            break
+        kept.append(row)
+        used += size
+    return head + "".join(kept) + marker
+
+
 # --- git evidence ------------------------------------------------------------
 
 
@@ -703,6 +824,46 @@ def ingest_forum(
 # --- publish (after halt, from run_night) ------------------------------------
 
 
+def forum_match(
+    item: dict[str, Any],
+    forum: dict[str, Any],
+    *,
+    exclude_repo_id: str,
+) -> dict[str, Any] | None:
+    """An other-repo item with the same check_hash + normalised path set that is attempted or done.
+
+    Exact key only (§3 L4 evidence; never loosened in v0). A done origin is
+    preferred over an attempted one; otherwise the first stored wins. None
+    when no other repo has such a row.
+    """
+    want = origin_key(item)
+    own = str(item.get("id") or "")
+    attempted: dict[str, Any] | None = None
+    for row in _dict_rows(forum.get("items")):
+        if str(row.get("repo_id") or "") == exclude_repo_id or str(row.get("id") or "") == own:
+            continue
+        if origin_key(row) != want:
+            continue
+        if row.get("done"):
+            return row
+        if attempted is None and row.get("attempted"):
+            attempted = row
+    return attempted
+
+
+def reuse_event_id(origin_item_id: str, consumer_item_id: str, consumer_night: str, kind: str) -> str:
+    raw = f"{origin_item_id}|{consumer_item_id}|{consumer_night}|{kind}"
+    return "r-" + hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def _reuse_kind(item: dict[str, Any]) -> str:
+    if item.get("done"):
+        return "applied"
+    if item.get("attempted"):
+        return "attempted"
+    return "proposed"
+
+
 def reuse_events_for_night(
     forum: dict[str, Any],
     *,
@@ -710,13 +871,54 @@ def reuse_events_for_night(
     repo_name: str,
     night: str,
     items: list[dict[str, Any]],
+    started_at: str = "",
 ) -> list[dict[str, Any]]:
-    """L4 exact-key reuse rows for tonight's non-void items. Computed only at publish.
+    """L4 exact-key reuse rows for tonight's non-void items (§3). Computed only at publish.
 
-    PR3 fills this in with `forum_match`; until then no event is ever invented.
+    For each of this night's non-void items with a `forum_match` origin, one
+    event whose kind follows the consumer: proposed (never reached host_check;
+    grants no L4), attempted, applied. Origin and consumer ids are distinct.
+    Only items of this night count — a kept done row re-projected from an
+    older night is not tonight's consume — and an origin whose night ended
+    after this night started (both stamps known) is one it could not have
+    read, so a re-publish of the earlier night never attributes backwards.
+    Ids are stable: re-running a publish upserts the same rows.
     """
-    _ = (forum, repo_id_, repo_name, night, items)
-    return []
+    if not night:
+        return []
+    nights = {night_key(n): n for n in _dict_rows(forum.get("nights"))}
+    at = _utc_now()
+    events: list[dict[str, Any]] = []
+    for item in items:
+        if item.get("voided") or str(item.get("night") or "") != night:
+            continue
+        origin = forum_match(item, forum, exclude_repo_id=repo_id_)
+        if origin is None:
+            continue
+        origin_id = str(origin.get("id") or "")
+        consumer_id = str(item.get("id") or "")
+        if not origin_id or not consumer_id or origin_id == consumer_id:
+            continue
+        ended = str((nights.get(night_key(origin)) or {}).get("ended_at") or "")
+        if started_at and ended and ended > started_at:
+            continue
+        kind = _reuse_kind(item)
+        events.append(
+            {
+                "id": reuse_event_id(origin_id, consumer_id, night, kind),
+                "at": at,
+                "kind": kind,
+                "origin_repo_id": str(origin.get("repo_id") or ""),
+                "origin_repo_name": str(origin.get("repo_name") or ""),
+                "origin_item_id": origin_id,
+                "consumer_repo_id": repo_id_,
+                "consumer_repo_name": repo_name,
+                "consumer_night": night,
+                "consumer_item_id": consumer_id,
+                "match": REUSE_MATCH,
+            }
+        )
+    return events
 
 
 def _night_row_from_report(
@@ -762,8 +964,9 @@ def publish_night(*, home: Path, report: NightReport, ledger: dict[str, Any]) ->
 
     `report.brief` may be None (crash before a brief: no items). Never calls
     Brief.freeze([]). `merged` is set False only on a new row; an existing
-    True is never clobbered and never flipped here. Saves forum.json + forum.md
-    under forum.lock and logs one line.
+    True is never clobbered and never flipped here. Reuse events (L4) are
+    computed here and nowhere else (reuse_events_for_night); the forum never
+    voids. Saves forum.json + forum.md under forum.lock and logs one line.
     """
     home_p = Path(home)
     path = resolve_repo(Path(report.repo))
@@ -781,7 +984,12 @@ def publish_night(*, home: Path, report: NightReport, ledger: dict[str, Any]) ->
         stored.setdefault("merged", False)
         stored.setdefault("merged_by", "")
         for event in reuse_events_for_night(
-            forum, repo_id_=rid, repo_name=path.name, night=night, items=items
+            forum,
+            repo_id_=rid,
+            repo_name=path.name,
+            night=night,
+            items=items,
+            started_at=str(row.get("started_at") or ""),
         ):
             upsert_reuse(forum, event)
         return forum

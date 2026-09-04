@@ -89,8 +89,14 @@ def freeze_lens_hint(repo: Path, home: Path) -> str:
 
 
 def freeze_snapshot(ctx: NightContext) -> str:
-    """Minute-0 snapshot: home ledger on every snapshot; forum excerpt is PR3 (forum=None)."""
-    return read_snapshot(ctx.repo, home=ctx.settings.home, forum=None)
+    """Minute-0 snapshot (N5): home ledger plus the other-repo forum excerpt.
+
+    `forum=` is freeze-only — None when NIGHTSHIFT_FORUM is off. Writer turns
+    (LoopNodes.writer) pass home= only and never see another repo.
+    """
+    home = ctx.settings.home
+    loaded = forum.load_forum(home) if forum.forum_enabled() else None
+    return read_snapshot(ctx.repo, home=home, forum=loaded)
 
 
 def _mark_published(exc: BaseException | None) -> None:

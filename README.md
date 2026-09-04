@@ -5,21 +5,27 @@
 [![LoopScope](https://img.shields.io/badge/LoopScope-hook-7a8f62)](https://github.com/sw30labs/loopscope)
 [![License](https://img.shields.io/badge/License-Apache_2.0-green.svg)](LICENSE)
 
-Pick a git project. The objective is **areas of improvement**: Nightshift finds the checkable ones, freezes a short brief, and works them overnight. Wake up to a checklist on a branch. You decide what lands.
+Overnight **areas of improvement** across a **portfolio**, not one clone. Pick a git project, or pick **tonight's bag**. Nightshift freezes checkable upgrades, works them on the overnight tariff, and leaves you branches. `main` is never touched. You decide what lands. This is not a chatbot. The product is a `git diff`.
 
-Electricity is cheaper at night. The local supercomputers are already paid for: two NVIDIA Sparks and a 512 GB Mac Studio. Leave them dark and that capex earns nothing until morning. Nightshift is continuous improvement on the overnight tariff — same machines, cheaper electrons, a frozen brief, a branch you review when you wake up.
+What shipped:
 
-Minute 0, the critic walks the tree, tests, README, and recent log, then the ledger of nights that already ran. It freezes **2–5 checkable upgrades** (deck **JOBS**, default **2**). Not “cleaner architecture.” Each item has a host command that can pass or fail. The writer cannot grow the brief. Last night’s attempted checks get **voided**, not retried.
+- **Portfolio bag** — `nightshift bag` / deck **BAG** + **RUN BAG**. Sequential nights (default 2, max 3) against one writer and one critic. Recency, CMM holes, optional `~/.nightshift/prior.json` liked/skip.
+- **Meta RSI** — every bag includes Nightshift itself unless `--skip-meta`. Orange on the RSI graph is Nightshift writing Nightshift. You still merge.
+- **Shared forum** — `~/.nightshift/forum.json` + `forum.md`. Publish after halt. A `shlex` catch in this repo is visible at freeze on the next target. Not a chat.
+- **CMM atlas (local)** — `nightshift cmm` / deck **CMM**. Histogram over the forum. Empty L1–L5 until evidence. No invented scores. Atlas is Later.
+
+Electricity is cheaper at night. The local supercomputers are already paid for: two NVIDIA Sparks and a 512 GB Mac Studio. Leave them dark and that capex earns nothing until morning. Same machines, cheaper electrons, a frozen brief, branches you review when you wake up.
+
+Each night: minute 0, the critic walks the tree, tests, README, recent log, the clone ledger, and a ranked excerpt of the **other-repo** forum. It freezes **2–5 checkable upgrades** (deck **JOBS**, default **2**). Not “cleaner architecture.” Each item has a host command that can pass or fail. The writer cannot grow the brief. Last night’s attempted checks get **voided**, not retried.
 
 Then a Ralph loop until remaining is 0, the clock (default 06:00 local), or `max_turns`: critic jobs the next open item, Spark DS4 writes, **host pytest is truth** (only the current job can be marked done, and only if its `paths[]` changed this night), critic reverts gold-plating. The same host failure three times voids that job and unlocks the next. Morning you get:
 
-- `night/YYYY-MM-DD[-HHMM]` — **`main` never touched**
+- `night/YYYY-MM-DD[-HHMM]` per target — **`main` never touched**
 - a [LoopScope](https://github.com/sw30labs/loopscope) replay
 - `.nightshift/summary.md` — done, void, remaining
+- `forum.md` + a CMM histogram at estate grain (`nightshift morning --portfolio`)
 
-Merge it, cherry-pick it, or delete it. This is not a chatbot. The product is a `git diff`.
-
-You can still pick one repo. You can also pick **tonight's bag**: two sequential nights (default; max 3), always including meta Nightshift unless `--skip-meta`. Mornings read `~/.nightshift/forum.md` and a local CMM histogram — empty columns until nights have written evidence. [ROADMAP.md](ROADMAP.md) is the Now / Next / Later.
+Merge it, cherry-pick it, or delete it. Now / Next / Later: [ROADMAP.md](ROADMAP.md).
 
 ![Nightshift command deck](docs/command-deck.png)
 
@@ -27,7 +33,7 @@ You can still pick one repo. You can also pick **tonight's bag**: two sequential
 
 ![Meta Nightshift / RSI](docs/rsi-graph.png)
 
-*Meta Nightshift / RSI — recursive self-improvement. Orange is the night (Nightshift writing Nightshift). Blue is `main`. You still merge.*
+*RSI — recursive self-improvement. Orange is the night (Nightshift writing Nightshift). Blue is `main`. The bag always includes this repo unless you `--skip-meta`. You still merge.*
 
 Personal-capacity OSS. GitHub is the remote. Morning review is VS Code, not Cursor. Author: Nicolas Cravino / sw30labs.
 

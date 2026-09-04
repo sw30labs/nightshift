@@ -59,9 +59,27 @@ def _home_enabled() -> bool:
     return os.environ.get("NIGHTSHIFT_LEDGER_HOME", "1").strip() not in {"0", "false", "no", "off"}
 
 
+def repo_id(repo: Path) -> str:
+    """12 hex chars of sha1(resolved path). Same stem as the home ledger shard."""
+    return hashlib.sha1(str(Path(repo).resolve()).encode("utf-8")).hexdigest()[:12]
+
+
+def pathset_hash(paths: list[str]) -> str:
+    joined = "\0".join(sorted(normalize_rel(str(p)) for p in paths if str(p).strip()))
+    return hashlib.sha1(joined.encode("utf-8")).hexdigest()[:12]
+
+
+def night_id(repo_id_: str, night: str) -> str:
+    slug = str(night or "").replace("/", "-")
+    return f"n-{repo_id_}-{slug}"
+
+
+def item_id(repo_id_: str, check_hash_: str, paths: list[str]) -> str:
+    return f"i-{repo_id_}-{check_hash_}-{pathset_hash(paths)}"
+
+
 def _home_path(home: Path, repo: Path) -> Path:
-    digest = hashlib.sha1(str(repo.resolve()).encode("utf-8")).hexdigest()[:12]
-    return Path(home) / "ledger" / f"{digest}.json"
+    return Path(home) / "ledger" / f"{repo_id(repo)}.json"
 
 
 def _read_ledger_file(path: Path) -> dict[str, Any]:

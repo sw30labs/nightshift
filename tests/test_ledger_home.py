@@ -7,6 +7,7 @@ from nightshift.ledger import (
     ledger_snapshot_block,
     load_ledger,
     merge_night_into_ledger,
+    repo_id,
 )
 from nightshift.models import Brief, Upgrade
 from nightshift.runner import run_night
@@ -14,6 +15,7 @@ from nightshift.runner import run_night
 
 def test_home_ledger_survives_deleted_night(fixture_repo, mock_settings, ns_home):
     report = run_night(fixture_repo, mock_settings, explicit=True)
+    assert [p.stem for p in (ns_home / "ledger").glob("*.json")] == [repo_id(fixture_repo)]
     git(fixture_repo, "checkout", "main")
     git(fixture_repo, "branch", "-D", report.branch)
     loaded = load_ledger(fixture_repo, home=ns_home)

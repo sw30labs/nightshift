@@ -19,7 +19,7 @@ Then a Ralph loop until remaining is 0, the clock (default 06:00 local), or `max
 
 Merge it, cherry-pick it, or delete it. This is not a chatbot. The product is a `git diff`.
 
-Portfolio orchestrator, shared forum, CMM atlas: [ROADMAP.md](ROADMAP.md).
+You can still pick one repo. You can also pick **tonight's bag**: two sequential nights (default; max 3), always including meta Nightshift unless `--skip-meta`. Mornings read `~/.nightshift/forum.md` and a local CMM histogram — empty columns until nights have written evidence. [ROADMAP.md](ROADMAP.md) is the Now / Next / Later.
 
 ![Nightshift command deck](docs/command-deck.png)
 
@@ -57,6 +57,8 @@ export NIGHTSHIFT_API_KEY=test           # oMLX; Spark usually ignores Authoriza
 export NIGHTSHIFT_ROOTS=$HOME/REPOS      # default
 export NIGHTSHIFT_HALT_AT=06:00          # local clock
 export NIGHTSHIFT_BRIEF_SIZE=2           # 2-5; deck JOBS knob
+export NIGHTSHIFT_BAG_SIZE=2             # 1-3 sequential nights; always meta unless --skip-meta
+export NIGHTSHIFT_FORUM=1                # 0 skips forum publish and the freeze excerpt
 ```
 
 The cloud CI VM has neither oMLX nor the Sparks. Tests use `--mock` / `NIGHTSHIFT_MOCK=1`. Do not require live GPUs in CI.
@@ -101,7 +103,7 @@ nightshift serve --mock --demo          # VM / laptop without GPUs
 nightshift serve                        # live Mac: oMLX + spark-serve ds4
 ```
 
-Defaults to `http://127.0.0.1:43171`. Lists git repos under `NIGHTSHIFT_ROOTS` (default `~/REPOS`; skip `DEPRECATED` unless toggled). Click one, set **JOBS** 2–5, press **Run**. Live `remaining_count`, which brain is hot, last host-check output, LoopScope link, then `summary.md` after halt.
+Defaults to `http://127.0.0.1:43171`. Lists git repos under `NIGHTSHIFT_ROOTS` (default `~/REPOS`; skip `DEPRECATED` unless toggled). Click one, set **JOBS** 2–5, press **Run**. Or **BAG** / **RUN BAG** for tonight's sequential queue (JOBS applies to every night in the bag). Live `remaining_count`, which brain is hot, last host-check output, LoopScope link, bag list, then `summary.md` after halt. **CMM** in the header is the local histogram. Aineko WATCH while a night or a bag is running (including the gap between bag nights). No DE/OE checkboxes.
 
 `--demo` seeds a failing `widget` repo so the list is not empty.
 
@@ -113,21 +115,38 @@ nightshift run /path/to/repo
 nightshift run /path/to/repo --mock --brief-size 4
 nightshift run /path/to/repo --dry-run          # freeze a brief, write nothing
 nightshift run /path/to/repo --allow-dirty      # keep your WIP out of the night
+nightshift bag                                  # select tonight's targets; write bag.json idle
+nightshift bag --run --mock                     # lock + sequential nights
+nightshift bag --skip-meta --meta-last --size 3
 nightshift status                               # human block; --json for the full dict
+nightshift status --bag                         # night board plus the bag queue
 nightshift morning /path/to/repo                # 7am read + land commands
+nightshift morning --portfolio                  # forum.md + CMM histogram + land lines
+nightshift forum                                # portfolio ledger (human)
+nightshift forum ingest                         # latest-entry projection from clone ledgers
+nightshift forum mark-merged /path [night/…]    # cherry-picked keepers (L5 evidence)
+nightshift cmm                                  # local histogram; --json for cmm.json
 nightshift turns /path/to/repo                  # per-turn tape (LoopScope is the movie)
-nightshift halt                                 # stop after the current turn
+nightshift halt                                 # stop after the current turn (sets halt_bag if a bag is live)
 nightshift serve --host 127.0.0.1 --port 43171
 ```
 
-`--push` is off by default. Nightshift never force-pushes, never amends, never deletes your branches, never commits to `main`/`master`.
+`--push` is off by default. Nightshift never force-pushes, never amends, never deletes your branches, never commits to `main`/`master`. `run` / RUN / RUN BAG refuse while a bag or shift is live. `bag` without `--run` does not call the critic.
+
+## Tonight's bag, forum, CMM
+
+`nightshift bag` scans `NIGHTSHIFT_ROOTS`, skips dirty / in-progress / `night/*` (same dirt as `run`), prefers CMM holes then recency, and always includes meta Nightshift unless `--skip-meta`. Optional `~/.nightshift/prior.json` `{"liked": […], "skip": […]}` is the only v0 pin list — no GitHub stars, no `git remote` parsing.
+
+`bag --run` takes a durable lock (`bag.json` `state=running` + live pid) and runs nights **one after another** against the one writer and one critic, sharing the 06:00 deadline. One repo crash does not abort the bag. HALT sets `halt_bag` even between nights. Ctrl-C leaves the bag `halted`, not `done`.
+
+Morning at estate grain: `nightshift morning --portfolio` prints `forum.md`, the CMM histogram, and land commands. `nightshift cmm` writes `~/.nightshift/cmm.json` and `cmm.html` (system fonts, no Google Fonts). Unobserved clones stay L0. L1–L5 stay empty until the forum has evidence. Mock nights count.
 
 ## Overnight contract
 
 Minute 0, critic only (no writer, no project-body writes):
 
 1. Pre-flight (clean tree, `halt_at` is HH:MM, both brains answer `/models` unless `--mock`). Freeze the brief against **current HEAD** (the base). Then create and checkout `night/YYYY-MM-DD` (append `-HHMM` if that name exists). It does not reset to `main`. A freeze failure leaves you on the base; no orphan branch.
-2. Read tree, tests, README, recent git log, and a ledger excerpt. The writer snapshot is **job-first**: the current job's `paths[]` are shown in full under `## job file` before the 120k cut.
+2. Read tree, tests, README, recent git log, and a ledger excerpt (clone + home shard). Freeze also gets a ranked 8 KB excerpt from the **other-repo** forum. Writer turns do not.
 3. Emit a **frozen brief**: 2–5 upgrades (`NIGHTSHIFT_BRIEF_SIZE`, CLI `--brief-size`, or deck JOBS).
 Each must be checkable by a host command. If the repo has no tests, one item may be adding a smoke test that fails then making it pass.
 4. Persist `.nightshift/brief.json` on the night branch. After freeze the writer cannot add extra upgrades. The critic cannot quietly expand scope at 3am.
@@ -149,10 +168,10 @@ Morning artifacts on the night branch:
 - `.nightshift/summary.md` (what changed, what was refused, voided/skipped-as-duplicate, remaining if the clock halted)
 - small real commits as the night proceeds
 
-Ledger of prior nights lives at `.nightshift/ledger.json`. `events.jsonl` is rotated into `.nightshift/history/{UTC stamp}/` before truncate.
-End of night force-adds the ledger (`.nightshift/` is gitignored).
+Ledger of prior nights lives at `.nightshift/ledger.json` plus a home shard under `~/.nightshift/ledger/`. `events.jsonl` is rotated into `.nightshift/history/{UTC stamp}/` before truncate.
+End of night force-adds the ledger (`.nightshift/` is gitignored) and **publishes** to `~/.nightshift/forum.json` (after halt, never from the writer, never on `--dry-run`).
 
-Self-run (Nightshift on Nightshift) is allowed only when you pick it explicitly.
+Self-run (Nightshift on Nightshift) is allowed only when you pick it explicitly, or when it is the bag's **meta** target. Portfolio targets stay `explicit=False`.
 
 ## LoopScope
 
@@ -177,6 +196,7 @@ python -m loopscope.replay path/to/repo/.nightshift/events.jsonl --speed 8
 
 ```bash
 nightshift run ./some-repo --mock --no-observe
+nightshift bag --run --mock --no-observe
 NIGHTSHIFT_MOCK=1 nightshift serve --demo
 pytest
 ```
@@ -195,7 +215,8 @@ The mock provider implements the same chat shape as the live HTTP clients. Unit 
 - Writer HTTP timeout defaults to 600s; a timeout is recorded and retried next turn, not a dead night.
 - Host checks run in the target repo under the resolved interpreter (override / `.venv` / `environment.yml` / conda env named after the repo directory / Nightshift's own Python). Pytest CI addopts (`--cov`, …) are stripped so a missing pytest-cov cannot kill the check.
 - No `git push` unless `--push`.
-- HALT AFTER TURN (`nightshift halt` / deck button) finishes the current turn, then writes summary + ledger. Ctrl-C does not.
+- HALT AFTER TURN (`nightshift halt` / deck button) finishes the current turn, then writes summary + ledger. If a bag is live it also sets `halt_bag` so the rest of the queue does not start. Ctrl-C does not write a night summary; a live bag becomes `halted`.
+- A second `nightshift run`, deck RUN, or RUN BAG is refused while a bag or shift is live (including the gap between bag nights). Stale locks recover only when the pid is dead. This process is never treated as dead.
 - LoopScope is the movie. `nightshift turns` is the transcript (`.nightshift/turns.jsonl` on the night branch).
 
 Host python precedence: `NIGHTSHIFT_TARGET_PYTHON` or `.nightshift/host.json` `{"python": …}`, then `.venv`/`venv`, then `environment.yml` `name:`, then a conda env whose directory name equals the repo directory, then Nightshift's own interpreter. The source is printed on `run` / `--dry-run` and in the morning summary.
@@ -206,16 +227,19 @@ Host python precedence: `NIGHTSHIFT_TARGET_PYTHON` or `.nightshift/host.json` `{
 pytest
 ```
 
-Covered: brief freeze (cannot add extra upgrades once frozen; size 2-5), void plus ledger duplicate, critic cannot write files, host-check truth, branch naming, revert of unapproved paths (including parent-dir skip), mock end-to-end to remaining_count 0 on a fixture git repo, command deck list plus Run.
-Fixture path: failing tests, then patches, then real pytest, then summary.md, then night branch exists and main is unchanged.
+Covered: brief freeze (cannot add extra upgrades once frozen; size 2-5), void plus ledger duplicate, critic cannot write files, host-check truth, branch naming, revert of unapproved paths (including parent-dir skip), mock end-to-end to remaining_count 0 on a fixture git repo, command deck list plus Run, forum publish/reuse, CMM predicates, bag select/run plus the bag lock, deck BAG / RUN BAG / `/cmm`.
+Fixture path: failing tests, then patches, then real pytest, then summary.md, then night branch exists and main is unchanged. Tests never run a night on this checkout.
 
 ## Layout
 
 ```
 src/nightshift/
-  cli.py         list / run / status / serve / morning / turns / halt
-  deck.py        stdlib HTTP command deck
-  runner.py      overnight contract
+  cli.py         list / run / bag / status / serve / morning / turns / halt / forum / cmm
+  deck.py        stdlib HTTP command deck (RUN, BAG, RUN BAG, /cmm)
+  bag.py         tonight's queue + durable lock
+  forum.py       ~/.nightshift/forum.json + forum.md
+  cmm.py         local evidence histogram
+  runner.py      overnight contract (publishes after halt; stops observe)
   graph.py       LangGraph cycle plus snapshot / revert
   llm.py         OpenAI-compat clients, mock provider, writer, critic
   host.py        real check commands + interpreter resolution

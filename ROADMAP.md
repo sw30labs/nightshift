@@ -1,12 +1,10 @@
 # <img src="docs/aineko.svg" alt="Aineko" width="40" height="40"/> Nightshift roadmap
 
-Vision, not a schedule. Today is still: pick a repo, freeze two checkable upgrades, sleep, merge or drop. This page is the thing that is not built yet.
-
-The product stays a `git diff`. `main` is never touched. You still decide what lands.
+Vision, not a schedule. Today: pick a repo, or pick **tonight's bag**. Freeze two checkable upgrades, sleep, merge or drop. The product stays a `git diff`. `main` is never touched. You still decide what lands.
 
 ## The loop
 
-An orchestrator looks at the portfolio — the repos you actually care about (important, liked, forked, recently alive) — and picks **tonight's bag**. Always include **meta Nightshift**: squeeze RSI out of the tool that runs the nights. Then it starts and monitors one Nightshift per selected repo. Morning you get branches, not a chatbot.
+`nightshift bag` looks at local clones under `NIGHTSHIFT_ROOTS` (default `~/REPOS`) — recency, CMM holes, optional `~/.nightshift/prior.json` liked/skip — and picks **tonight's bag**. Always include **meta Nightshift** unless `--skip-meta`: squeeze RSI out of the tool that runs the nights. Nights run **one after another** against the one writer and one critic. Morning you get branches, not a chatbot.
 
 Jobs still come from two lenses, one bag:
 
@@ -31,7 +29,7 @@ flowchart LR
   A[CMM atlas]
   R[Meta Nightshift]
 
-  P -->|liked forked important| O
+  P -->|recency CMM holes prior.json| O
   O -->|tonight plus always RSI| N
   N -->|DE or OE jobs| H
   H -->|you merge or drop| F
@@ -39,20 +37,20 @@ flowchart LR
   A -->|maturity prior| P
   O -.-> R
   R --> N
-  N -.->|ledger per repo| F
+  N -.->|forum after halt| F
 ```
 
 ## Shared forum
 
-Tonight each clone keeps `.nightshift/` to itself. That is a silo.
+Each clone still keeps `.nightshift/ledger.json` as the void prior for **that** tree. That is not the estate.
 
-The forum is the portfolio ledger: which checkable upgrade ran, on which repo, whether host pytest passed, what got voided, what a later night should not retry. A host `shlex` catch that saved Nightshift should be visible to the next target, not only to `nightshift`'s own history.
+The forum is `~/.nightshift/forum.json` plus human `forum.md`: which checkable upgrade ran, on which repo, whether host pytest passed, what got voided, what a later night should not retry. A host `shlex` catch that saved Nightshift is in the freeze snapshot of the next target (ranked 8 KB, other repos only). Exact-key reuse is recorded at publish. The writer never sees the excerpt. Dry-run never publishes.
 
-Not a chat. A state file (or Atlas page) you can read in the morning at portfolio grain.
+Not a chat. `nightshift morning --portfolio` / `nightshift forum`. GitHub stars and an Atlas page are Later.
 
 ## CMM atlas
 
-Capability maturity as assessment, not as theatre. Empty columns until nights have written evidence. No invented scores.
+Capability maturity as assessment, not as theatre. `nightshift cmm` / deck **CMM** is a local histogram over the forum. Empty columns until nights have written evidence. No invented scores. No cloud LLM. Atlas ingest of `cmm.json` is Later.
 
 ![CMM atlas](docs/roadmap-cmm.png)
 
@@ -69,25 +67,25 @@ flowchart LR
 
 | Level | Name | Evidence |
 |---|---|---|
-| L0 | Unobserved | In `~/REPOS` or GitHub, never frozen |
+| L0 | Unobserved | In the histogram population, no forum freeze |
 | L1 | Checkable DE | At least one freeze from tests / README / log |
 | L2 | Nights with OE | A night ran; host checks exist |
 | L3 | Ledger memory | Void / duplicate-of-history is doing work |
 | L4 | Forum reuse | Another repo consumed a recorded improvement |
 | L5 | Meta RSI | Nightshift improved Nightshift, and you merged it |
 
-Histogram over repos, over time. Atlas-shaped: you can see the estate, not one clone.
+Histogram over repos under roots (plus the meta checkout if it is missing). A repo is counted once, at its max level. L3 does not require L2. L5 does not require L4. L5 needs a forum `done` row **and** a merge (or `forum mark-merged` for cherry-picked keepers) — never “HEAD is main,” never a home shard.
 
 ## Always squeeze meta
 
-Orange nights on this repo are the RSI graph you already have. The orchestrator does not treat that as optional. Every bag includes Nightshift itself (or a slice of it) unless you explicitly skip. Recursive self-improvement is the point of paying for idle Sparks and a 512 GB Mac Studio after dark.
+Orange nights on this repo are the RSI graph you already have. The orchestrator does not treat that as optional. Every bag includes Nightshift itself unless `--skip-meta`. Recursive self-improvement is the point of paying for idle Sparks and a 512 GB Mac Studio after dark.
 
 ## Now / next / later
 
-**Now** (this repo): one target, JOBS default 2, DE+OE freeze, per-clone ledger, meta when you pick `nightshift`, human merge.
+**Now:** one target (`run` / RUN) **and** a sequential bag (`bag` / BAG / RUN BAG). JOBS default 2. DE+OE freeze, no checkboxes. Per-clone ledger plus home shards. Shared forum v0 (`forum.json` / `forum.md`). Local CMM histogram. Always meta unless you skip. Bag lock so a second Ralph cannot start in the gap between nights. Aineko WATCH while a night **or** a bag is running. Human merge.
 
-**Next:** orchestrator picks N targets from the portfolio prior (stars, forks, liked, recency, CMM holes). Starts and watches those nights. Always meta. Shared forum v0 (one JSON/Markdown the mornings can read).
+**Next:** optional GitHub prior when `gh` exists (stars/forks, 2 s, fail-open). CMM as a real histogram page in Atlas — Atlas reads `cmm.json`; Nightshift does not import Atlas.
 
-**Later:** CMM atlas as a real histogram in Atlas, forum patterns that travel, multi-night monitor on the command deck, Aineko WATCH while any of the bag is running.
+**Later:** forum patterns that travel (basename / check-kind, still no embeddings), deck monitor for the whole bag as first-class, parallel Ralphs, Aineko WATCH-any of a parallel bag.
 
 Aineko stays on the header, far right on GUIs, left of the title on GitHub READMEs. Every new surface gets the cat.

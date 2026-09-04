@@ -77,6 +77,12 @@ export NIGHTSHIFT_FORUM=1                # 0 skips forum publish and the freeze 
 
 The cloud CI VM has neither oMLX nor the Sparks. Tests use `--mock` / `NIGHTSHIFT_MOCK=1`. Do not require live GPUs in CI.
 
+Live confirm a night started is GPU activity, not a deck click:
+
+![Mac Studio critic at 100% GPU; Sparks idle waiting for the writer](docs/live-brains.png)
+
+*oMLX critic pinning the Mac Studio GPU (100% @ 1379 MHz, 361 / 512 GB). sparkone / sparktwo sit quiet until the writer turn. That is the proof the bag is alive.*
+
 ## Install
 
 From a source checkout, same shape as LoopScope:

@@ -121,7 +121,7 @@ Defaults to `http://127.0.0.1:43171`. Lists git repos under `NIGHTSHIFT_ROOTS` (
 
 `--demo` seeds a failing `widget` repo so the list is not empty.
 
-![Nightshift command deck](docs/command-deck.png)
+![Nightshift command deck — BAG, RUN BAG, CMM, Aineko WATCH](docs/command-deck.png)
 
 ![Nightshift command deck and LoopScope during a live overnight run](docs/deck-loopscope.png)
 

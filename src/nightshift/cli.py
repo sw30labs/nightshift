@@ -1,4 +1,4 @@
-"""CLI: list, run, status, serve, morning, turns, halt. Equally first-class with the command deck."""
+"""CLI: list, run, status, serve, morning, turns, halt, forum, cmm. Equally first-class with the command deck."""
 
 from __future__ import annotations
 
@@ -9,9 +9,18 @@ import re
 import sys
 from pathlib import Path
 
+from .cmm import histogram, population, render_cmm_md, write_cmm
 from .config import Settings
 from .deck import serve_deck
-from .forum import FORUM_REL, ingest_forum, load_forum, render_forum_md
+from .forum import (
+    FORUM_REL,
+    ingest_forum,
+    land_lines,
+    load_forum,
+    mark_merged,
+    render_forum_md,
+    select_mark_merged_night,
+)
 from .gitops import git, rev_parse
 from .graph import load_turns
 from .host import resolve_interpreter
@@ -165,7 +174,41 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmm_snapshot(settings: Settings, forum: dict) -> dict:
+    """Histogram over the population, written to home/cmm.json + cmm.html on every compute."""
+    home = settings.state_dir()
+    snap = histogram(population(settings), forum, home=home, roots=settings.roots)
+    write_cmm(home, snap)
+    return snap
+
+
+def cmd_morning_portfolio(args: argparse.Namespace) -> int:
+    """`morning --portfolio`: forum.md (regenerated), the CMM histogram, then the land lines.
+
+    `--diff` / `--branch` / `--json` are per-repo flags and are ignored here.
+    """
+    settings = _settings_from(args)
+    home = settings.home
+    if not (home / FORUM_REL).is_file():
+        print("no forum yet", file=sys.stderr)
+        return 1
+    forum = load_forum(home)
+    print(render_forum_md(forum, home=home), end="")
+    print()
+    print(render_cmm_md(_cmm_snapshot(settings, forum)), end="")
+    print()
+    print("## Land")
+    for line in land_lines(forum) or ["- (none)"]:
+        print(line)
+    return 0
+
+
 def cmd_morning(args: argparse.Namespace) -> int:
+    if getattr(args, "portfolio", False):
+        return cmd_morning_portfolio(args)
+    if not getattr(args, "repo", None):
+        print("repo required", file=sys.stderr)
+        return 1
     repo = Path(args.repo)
     branch = getattr(args, "branch", None)
     try:
@@ -278,19 +321,31 @@ def cmd_halt(args: argparse.Namespace) -> int:
 
 
 def cmd_forum(args: argparse.Namespace) -> int:
-    """`nightshift forum` prints forum.md regenerated from forum.json; `--json` the file; `ingest` projects ledgers."""
+    """`nightshift forum` prints forum.md regenerated from forum.json; `--json` the file.
+
+    `ingest` projects clone + home ledgers of the population (roots plus the
+    meta checkout); `mark-merged REPO [NIGHT]` stamps one night (NIGHT
+    omitted: the most recent done + unmerged night only) and prints it.
+    """
     settings = _settings_from(args)
-    if getattr(args, "forum_cmd", None) == "ingest":
-        repos = [
-            Path(r.path)
-            for r in find_repos(settings.roots, include_deprecated=settings.include_deprecated)
-        ]
+    sub = getattr(args, "forum_cmd", None)
+    if sub == "ingest":
         stats: dict[str, int] = {}
-        ingest_forum(settings.state_dir(), repos, stats=stats)
+        ingest_forum(settings.state_dir(), population(settings), stats=stats)
         print(
             f"repos {stats.get('repos', 0)}  nights {stats.get('nights', 0)}  "
             f"items {stats.get('items', 0)}  orphans {stats.get('orphans', 0)}"
         )
+        return 0
+    if sub == "mark-merged":
+        home = settings.state_dir()
+        repo = Path(args.repo)
+        wanted = getattr(args, "night", None) or None
+        # Pick under no lock, stamp by explicit night under forum.lock: the
+        # SafetyError for a typo or an all-merged history surfaces before any write.
+        night = str(select_mark_merged_night(load_forum(home), repo, wanted).get("night") or "")
+        mark_merged(home, repo, night=night)
+        print(f"merged\t{repo.expanduser().resolve().name}\t{night}")
         return 0
     home = settings.home
     if not (home / FORUM_REL).is_file():
@@ -301,6 +356,17 @@ def cmd_forum(args: argparse.Namespace) -> int:
         print(json.dumps(forum, indent=2))
     else:
         print(render_forum_md(forum, home=home), end="")
+    return 0
+
+
+def cmd_cmm(args: argparse.Namespace) -> int:
+    """`nightshift cmm`: histogram + per-repo rows from the forum; `--json` the cmm.json shape."""
+    settings = _settings_from(args)
+    snap = _cmm_snapshot(settings, load_forum(settings.state_dir()))
+    if getattr(args, "json", False):
+        print(json.dumps(snap, indent=2))
+    else:
+        print(render_cmm_md(snap), end="")
     return 0
 
 
@@ -345,11 +411,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_serve.add_argument("--no-observe", action="store_true")
     p_serve.set_defaults(func=cmd_serve)
 
-    p_morning = sub.add_parser("morning", help="7am read of the last night on a repo")
-    p_morning.add_argument("repo")
+    p_morning = sub.add_parser("morning", help="7am read of the last night on a repo, or --portfolio")
+    p_morning.add_argument("repo", nargs="?", help="path to the repo (omit with --portfolio)")
     p_morning.add_argument("--branch", help="night/… branch to read")
     p_morning.add_argument("--json", action="store_true")
     p_morning.add_argument("--diff", action="store_true", help="stream git diff base...branch")
+    p_morning.add_argument(
+        "--portfolio",
+        action="store_true",
+        help="forum.md + CMM histogram + land lines for every repo (ignores --diff)",
+    )
+    p_morning.add_argument("--roots", nargs="*", help="with --portfolio: override NIGHTSHIFT_ROOTS")
+    p_morning.add_argument("--include-deprecated", action="store_true")
     p_morning.set_defaults(func=cmd_morning)
 
     p_turns = sub.add_parser("turns", help="print .nightshift/turns.jsonl")
@@ -371,6 +444,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_forum_ingest.add_argument("--roots", nargs="*", help="override NIGHTSHIFT_ROOTS / ~/REPOS")
     p_forum_ingest.add_argument("--include-deprecated", action="store_true")
     p_forum_ingest.set_defaults(func=cmd_forum)
+    p_forum_mark = forum_sub.add_parser(
+        "mark-merged", help="operator evidence: stamp one forum night merged (cherry-picked keepers)"
+    )
+    p_forum_mark.add_argument("repo", help="path to the repo")
+    p_forum_mark.add_argument(
+        "night", nargs="?", help="night/… (default: the most recent done + unmerged night only)"
+    )
+    p_forum_mark.set_defaults(func=cmd_forum)
+
+    p_cmm = sub.add_parser("cmm", help="evidence histogram from the forum; writes cmm.json + cmm.html")
+    p_cmm.add_argument("--json", action="store_true", help="print the cmm.json snapshot")
+    p_cmm.add_argument("--roots", nargs="*", help="override NIGHTSHIFT_ROOTS / ~/REPOS")
+    p_cmm.add_argument("--include-deprecated", action="store_true")
+    p_cmm.set_defaults(func=cmd_cmm)
 
     return parser
 

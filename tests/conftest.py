@@ -8,6 +8,13 @@ from nightshift.config import Settings
 from nightshift.demo import seed_widget
 
 
+@pytest.fixture(autouse=True)
+def _no_package_checkout(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Design note N7: the suite never treats the operator's own checkout as a
+    # meta target. A test that needs one seeds a fake Nightshift repo under tmp.
+    monkeypatch.setattr("nightshift.cmm.package_checkout", lambda: None)
+
+
 @pytest.fixture
 def ns_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     home = tmp_path / "ns-home"

@@ -168,6 +168,8 @@ def _coerce_forum(data: dict[str, Any]) -> dict[str, Any] | None:
     for night in data["nights"]:
         if "item_ids" in night:
             night["item_ids"] = _str_list(night["item_ids"])
+        if "void_reasons" in night:
+            night["void_reasons"] = _str_list(night["void_reasons"])
     return data
 
 
@@ -763,6 +765,7 @@ def _apply_plan(forum: dict[str, Any], plan: _NightPlan, stored: dict[str, Any] 
                 "brief_size": len(items),
                 "lens_hint": "",
                 "item_ids": [i["id"] for i in items],
+                "void_reasons": [i["void_reason"] for i in items if i["voided"] and not i["done"]],
             }
         )
     upsert_night(forum, row)
@@ -928,8 +931,15 @@ def _night_row_from_report(
     path: Path,
     items: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """The nights[] row of the JSON example, minus `merged` (never flipped by publish)."""
+    """The nights[] row of the JSON example, minus `merged` (never flipped by publish).
+
+    `void_reasons` (additive) lists tonight's void reasons in brief order. A
+    freeze that voids a key the ledger already landed keeps the done item
+    (do-not-clobber), so the night row is where that `duplicate_of_history`
+    memory is recorded for CMM L3.
+    """
     landed, voided, remaining = brief_counts(report.brief)
+    upgrades = report.brief.upgrades if report.brief is not None else ()
     if report.brief is None:
         landed, voided = _as_int(report.landed), _as_int(report.voided)
         remaining = _as_int(report.remaining_count)
@@ -953,9 +963,10 @@ def _night_row_from_report(
         "remaining": remaining,
         "error": clip(report.error),
         "mock": bool(report.mock),
-        "brief_size": len(report.brief.upgrades) if report.brief is not None else 0,
+        "brief_size": len(upgrades),
         "lens_hint": str(report.lens_hint or ""),
         "item_ids": [i["id"] for i in items],
+        "void_reasons": [clip(u.void_reason) for u in upgrades if u.void],
     }
 
 
@@ -1048,6 +1059,7 @@ def publish_error_stub(
         "brief_size": 0,
         "lens_hint": "",
         "item_ids": [],
+        "void_reasons": [],
     }
     entry = {
         "at": at,
@@ -1088,35 +1100,40 @@ def _night_has_done_item(forum: dict[str, Any], night: dict[str, Any]) -> bool:
     return False
 
 
+def select_mark_merged_night(
+    forum: dict[str, Any], repo: Path, night: str | None = None
+) -> dict[str, Any]:
+    """The night row `mark_merged` would stamp. SafetyError when nothing qualifies.
+
+    NIGHT given: that row. NIGHT omitted: only the most recent night for this
+    repo with a done=true item and merged is not True (by ended_at, then
+    night). Never all; a typo must not mark the whole history.
+    """
+    rid = repo_id(repo)
+    name = Path(repo).name
+    nights = [n for n in _dict_rows(forum.get("nights")) if n.get("repo_id") == rid]
+    if not nights:
+        raise SafetyError(f"no forum nights for {name} ({rid}); run `nightshift forum ingest` first")
+    if night:
+        row = next((n for n in nights if str(n.get("night") or "") == night), None)
+        if row is None:
+            raise SafetyError(f"no forum night {night!r} for {name} ({rid})")
+        return row
+    candidates = [n for n in nights if n.get("merged") is not True and _night_has_done_item(forum, n)]
+    if not candidates:
+        raise SafetyError(f"no unmerged forum night with a done item for {name}; pass NIGHT explicitly")
+    return max(candidates, key=lambda n: (str(n.get("ended_at") or ""), str(n.get("night") or "")))
+
+
 def mark_merged(home: Path, repo: Path, night: str | None = None) -> dict[str, Any]:
     """Operator evidence for cherry-picked keepers. Sticky across ingests.
 
     NIGHT omitted: stamp only the most recent night for this repo with a
-    done=true item and merged=False (by ended_at, then night). Never all.
+    done=true item and merged=False (see select_mark_merged_night). Never all.
     """
-    rid = repo_id(repo)
-    name = Path(repo).name
 
     def _apply(forum: dict[str, Any]) -> dict[str, Any]:
-        nights = [n for n in forum.get("nights") or [] if n.get("repo_id") == rid]
-        if not nights:
-            raise SafetyError(f"no forum nights for {name} ({rid}); run `nightshift forum ingest` first")
-        if night:
-            row = next((n for n in nights if str(n.get("night") or "") == night), None)
-            if row is None:
-                raise SafetyError(f"no forum night {night!r} for {name} ({rid})")
-        else:
-            candidates = [
-                n for n in nights if n.get("merged") is not True and _night_has_done_item(forum, n)
-            ]
-            if not candidates:
-                raise SafetyError(
-                    f"no unmerged forum night with a done item for {name}; pass NIGHT explicitly"
-                )
-            row = max(
-                candidates,
-                key=lambda n: (str(n.get("ended_at") or ""), str(n.get("night") or "")),
-            )
+        row = select_mark_merged_night(forum, repo, night)
         row["merged"] = True
         row["merged_by"] = MERGED_BY_OPERATOR
         return forum
@@ -1195,6 +1212,18 @@ def _land_lines(name: str, base: str, branch: str) -> list[str]:
     return [merge, f"- {name}: `git branch -D {branch}`"]
 
 
+def land_lines(forum: dict[str, Any]) -> list[str]:
+    """Merge + drop lines, newest night first, for every unmerged night that has a branch."""
+    out: list[str] = []
+    for night in sorted(_dict_rows(forum.get("nights")), key=_night_sort_key, reverse=True):
+        branch = str(night.get("branch") or "")
+        if not branch or night.get("merged") is True:
+            continue
+        name = str(night.get("repo_name") or night.get("repo_id") or "?")
+        out.extend(_land_lines(name, str(night.get("base_ref") or ""), branch))
+    return out
+
+
 def render_forum_md(
     forum: dict[str, Any],
     *,
@@ -1268,12 +1297,5 @@ def render_forum_md(
         )
     lines.append("")
     lines.append("## Land")
-    land: list[str] = []
-    for night in sorted(nights, key=_night_sort_key, reverse=True):
-        branch = str(night.get("branch") or "")
-        if not branch or night.get("merged") is True:
-            continue
-        name = str(night.get("repo_name") or night.get("repo_id") or "?")
-        land.extend(_land_lines(name, str(night.get("base_ref") or ""), branch))
-    lines.extend(land or ["- (none)"])
+    lines.extend(land_lines(forum) or ["- (none)"])
     return "\n".join(lines) + "\n"

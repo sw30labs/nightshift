@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import re
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -86,7 +87,7 @@ def clip(text: Any, limit: int = TEXT_MAX) -> str:
 def _as_int(value: Any, default: int = 0) -> int:
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
 
 
@@ -128,20 +129,25 @@ def with_home_lock(home: Path, name: str, fn: Callable[[], _T]) -> _T:
 
 
 def atomic_write_json(path: Path, data: dict[str, Any]) -> None:
-    """Write path.tmp then os.replace. A crash leaves *.tmp, never a torn JSON."""
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    """Replace a complete JSON document without sharing a temporary file with other writers."""
+    _atomic_write_text(path, json.dumps(data, indent=2) + "\n")
 
 
 def _atomic_write_text(path: Path, text: str) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
+    tmp: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent,
+            prefix=f".{path.name}.", suffix=".tmp", delete=False,
+        ) as stream:
+            tmp = Path(stream.name)
+            stream.write(text)
+        os.replace(tmp, path)
+    finally:
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
 
 
 # --- load / save -------------------------------------------------------------

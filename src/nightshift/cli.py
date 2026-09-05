@@ -14,11 +14,11 @@ from .bag import (
     bag_exit_code,
     load_bag,
     load_merged_status,
+    mutate_bag,
     pid_alive,
     recover_stale_bag,
     render_bag_table,
     run_bag,
-    save_bag,
     select_bag,
 )
 from .cmm import histogram, population, render_cmm_md, write_cmm
@@ -150,7 +150,7 @@ def cmd_status(args: argparse.Namespace) -> int:
                     brain="",
                     halt_reason="interrupted",
                 ).to_dict()
-            except PermissionError:
+            except (PermissionError, OverflowError, OSError):
                 pass
     want_bag = bool(getattr(args, "bag", False))
     if getattr(args, "json", False):
@@ -356,8 +356,7 @@ def cmd_halt(args: argparse.Namespace) -> int:
         print("no shift running", file=sys.stderr)
         return 1
     if bag_live:
-        bag["halt_bag"] = True
-        save_bag(home, bag)
+        mutate_bag(home, lambda current: current.update(halt_bag=True))
     if night_live:
         request_halt(home, int(snap["runner_pid"]))
         print(f"halt requested after turn {snap.get('turn') or 0}")

@@ -199,6 +199,51 @@ def test_keyboard_interrupt_halts_bag(tmp_path, ns_home, monkeypatch):
     assert bag["runner_pid"] is None
 
 
+def test_observe_start_failure_releases_bag_and_skips_targets(tmp_path, ns_home, monkeypatch):
+    seed_widget(tmp_path / "alpha")
+    settings = _settings(ns_home, [tmp_path], skip_meta=True, observe=True)
+    plan = select_bag(settings, size=1, skip_meta=True)
+    stopped = []
+
+    def boom(**kwargs):
+        raise RuntimeError("observer failed during startup")
+
+    monkeypatch.setattr("nightshift.bag.observe_start", boom)
+    monkeypatch.setattr("nightshift.bag.stop_active", lambda: stopped.append(True))
+    with pytest.raises(RuntimeError, match="observer failed"):
+        run_bag(plan, settings)
+    bag = load_bag(ns_home)
+    assert bag["state"] == "error"
+    assert bag["runner_pid"] is None
+    assert bag["targets"][0]["state"] == "skipped"
+    assert bag["targets"][0]["halt_reason"] == "error"
+    assert stopped == [True]
+    assert_shift_idle(ns_home)
+
+
+def test_reserved_bag_keeps_halt_requested_before_worker_starts(ns_home):
+    reservation = {
+        "bag_id": "b-reserved", "state": "running", "runner_pid": os.getpid(),
+        "halt_bag": True, "targets": [],
+    }
+    save_bag(ns_home, reservation)
+    acquire_bag(ns_home, {**reservation, "halt_bag": False, "current_index": -1})
+    assert load_bag(ns_home)["halt_bag"] is True
+    with pytest.raises(SafetyError, match="bag is already running"):
+        acquire_bag(ns_home, {**reservation, "current_index": -1})
+
+
+def test_same_process_cannot_replace_different_reserved_bag(ns_home):
+    save_bag(ns_home, {
+        "bag_id": "b-existing", "state": "running", "runner_pid": os.getpid(), "targets": [],
+    })
+    with pytest.raises(SafetyError, match="bag is already running"):
+        acquire_bag(ns_home, {
+            "bag_id": "b-another", "state": "running", "runner_pid": os.getpid(), "targets": [],
+        })
+    assert load_bag(ns_home)["bag_id"] == "b-existing"
+
+
 def test_cmd_run_refuses_while_bag_live(fixture_repo, ns_home, capsys):
     save_bag(
         ns_home,

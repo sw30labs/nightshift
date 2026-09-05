@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
-from nightshift.gitops import current_branch
-from nightshift.models import Brief
+from nightshift.gitops import current_branch, git, rev_parse
+from nightshift.models import Brief, Upgrade
 from nightshift.runner import run_night, write_summary
-from nightshift.summary import date_from_branch
+from nightshift.summary import date_from_branch, night_view
 
 
 def test_summary_morning_shape(fixture_repo, mock_settings):
@@ -76,3 +77,46 @@ def test_max_turns_emits_remaining(fixture_repo, mock_settings, monkeypatch):
     assert report.remaining_count > 0
     _ = Brief
     _ = write_summary
+
+
+def test_cherry_pick_keepers_are_unique_and_apply_in_dependency_order(fixture_repo):
+    base_sha = rev_parse(fixture_repo, "HEAD")
+    branch = "night/2026-09-04"
+    git(fixture_repo, "checkout", "-b", branch)
+
+    # The first commit belongs to two completed jobs; the second depends on it.
+    (fixture_repo / "widget.py").write_text("value = 1\n")
+    (fixture_repo / "README.md").write_text("Shared first change\n")
+    git(fixture_repo, "add", "widget.py", "README.md")
+    git(fixture_repo, "commit", "-m", "shared first change")
+    first = git(fixture_repo, "rev-parse", "--short", "HEAD").stdout.strip()
+    (fixture_repo / "widget.py").write_text("value = 2\n")
+    git(fixture_repo, "add", "widget.py")
+    git(fixture_repo, "commit", "-m", "dependent second change")
+    second = git(fixture_repo, "rev-parse", "--short", "HEAD").stdout.strip()
+
+    # Work for an unfinished job must stay out of the keeper command.
+    (fixture_repo / "VERSION").write_text("unfinished\n")
+    git(fixture_repo, "add", "VERSION")
+    git(fixture_repo, "commit", "-m", "unfinished version change")
+    unfinished = git(fixture_repo, "rev-parse", "--short", "HEAD").stdout.strip()
+    brief = Brief.freeze([
+        Upgrade(1, "implementation", "python -m pytest", ["widget.py"]),
+        Upgrade(2, "documentation", "test -s README.md", ["README.md"]),
+        Upgrade(3, "version", "test -s VERSION", ["VERSION"]),
+    ], repo=str(fixture_repo), branch=branch, base_ref="main", base_sha=base_sha)
+    brief.mark_done([1, 2])
+    meta = fixture_repo / ".nightshift"
+    meta.mkdir()
+    (meta / "brief.json").write_text(json.dumps(brief.to_dict()))
+
+    view = night_view(fixture_repo)
+    assert view["land"]["cherry_pick"] == f"git cherry-pick {first} {second}"
+    assert {row["sha"]: row["keeper"] for row in view["commits"]} == {
+        first: True, second: True, unfinished: False,
+    }
+    git(fixture_repo, "checkout", "main")
+    git(fixture_repo, *view["land"]["cherry_pick"].split()[1:])
+    assert (fixture_repo / "widget.py").read_text() == "value = 2\n"
+    assert (fixture_repo / "README.md").read_text() == "Shared first change\n"
+    assert not (fixture_repo / "VERSION").exists()

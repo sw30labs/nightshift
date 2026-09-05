@@ -15,14 +15,20 @@ from __future__ import annotations
 
 import html
 import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from string import Template
 from typing import Any
 
 from .config import Settings
-from .forum import atomic_write_json, default_ledger_evidence, night_merged, strict_default_branch
+from .forum import (
+    _atomic_write_text,
+    atomic_write_json,
+    default_ledger_evidence,
+    night_merged,
+    strict_default_branch,
+    with_home_lock,
+)
 from .ledger import repo_id
 from .repos import find_repos
 from .safety import is_nightshift_repo, resolve_repo
@@ -278,21 +284,17 @@ def histogram(
 # --- files -------------------------------------------------------------------
 
 
-def _atomic_write_text(path: Path, text: str) -> None:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
-
-
 def write_cmm(home: Path, snap: dict[str, Any]) -> Path:
     """Write home/cmm.json (atomic) and home/cmm.html. Returns the JSON path."""
     home_p = Path(home)
     path = home_p / CMM_REL
-    atomic_write_json(path, snap)
-    _atomic_write_text(home_p / CMM_HTML_REL, render_cmm_html(snap))
-    return path
+    def _write() -> Path:
+        rendered = render_cmm_html(snap)
+        atomic_write_json(path, snap)
+        _atomic_write_text(home_p / CMM_HTML_REL, rendered)
+        return path
+
+    return with_home_lock(home_p, "cmm", _write)
 
 
 def load_cmm(home: Path) -> dict[str, Any] | None:

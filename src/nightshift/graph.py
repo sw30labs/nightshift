@@ -28,7 +28,7 @@ from .gitops import (
 from .host import check_command_file_tokens, count_failed, parse_pytest, run_check
 from .llm import Critic, Writer, persist_meta
 from .models import Brief, CheckResult, FrozenBriefError, SafetyError, normalize_rel
-from .safety import git_visible_files, is_blocked_rel, is_junk, is_meta_path
+from .safety import assert_inside_repo, git_visible_files, is_blocked_rel, is_junk, is_meta_path
 from .status import StatusBoard
 
 SKIP_SNAPSHOT_DIRS = {
@@ -227,13 +227,12 @@ def night_changed_rels(repo: Path, base_sha: str) -> set[str]:
     """Repo-relative paths that differ from the night's parent (base_sha)."""
     names: set[str] = set()
     if base_sha:
-        proc = git(repo, "diff", "--name-only", base_sha, check=False)
-        for line in proc.stdout.splitlines():
-            rel = normalize_rel(line.strip().strip('"'))
+        proc = git(repo, "diff", "--name-only", "-z", base_sha, check=False)
+        for line in proc.stdout.split("\0"):
+            rel = line
             if rel:
                 names.add(rel)
-    for rel in changed_paths(repo):
-        names.add(normalize_rel(rel))
+    names.update(changed_paths(repo))
     return names
 
 
@@ -294,7 +293,7 @@ def _list_tree(repo: Path) -> list[str]:
     tree: list[str] = []
     if visible is not None:
         for rel in visible:
-            if is_blocked_rel(rel):
+            if is_blocked_rel(rel) or _snapshot_path(repo, rel) is None:
                 continue
             parts = Path(rel).parts
             if any(part in SKIP_SNAPSHOT_DIRS for part in parts):
@@ -305,9 +304,19 @@ def _list_tree(repo: Path) -> list[str]:
         rel_parts = path.relative_to(repo).parts
         if any(part in SKIP_SNAPSHOT_DIRS for part in rel_parts):
             continue
-        if path.is_file() and not is_blocked_rel(path.relative_to(repo).as_posix()):
+        if path.is_file() and _snapshot_path(repo, path.relative_to(repo).as_posix()) is not None:
             tree.append(path.relative_to(repo).as_posix())
     return tree
+
+
+def _snapshot_path(repo: Path, rel: str) -> Path | None:
+    """A harmless filename can link to a secret or a file outside the clone."""
+    if is_blocked_rel(rel):
+        return None
+    try:
+        return assert_inside_repo(repo, rel)
+    except (SafetyError, OSError, RuntimeError):
+        return None
 
 
 def _forum_snapshot_block(forum: dict[str, Any], repo: Path) -> str:
@@ -337,8 +346,8 @@ def read_snapshot(
     focus_rels = [normalize_rel(p) for p in focus if str(p).strip()]
     focus_set = set(focus_rels)
     chunks: list[str] = [f"# repo {repo}", "## git log", log_oneline(repo, 12)]
-    readme = repo / "README.md"
-    if readme.is_file():
+    readme = _snapshot_path(repo, "README.md")
+    if readme is not None and readme.is_file():
         chunks.append(
             "## README.md\n"
             + readme.read_text(encoding="utf-8", errors="replace")[:4000]
@@ -347,7 +356,8 @@ def read_snapshot(
     tree_set = set(tree)
 
     def _exists(rel: str) -> bool:
-        return rel in tree_set and (repo / rel).is_file()
+        path = _snapshot_path(repo, rel)
+        return rel in tree_set and path is not None and path.is_file()
 
     body_skip: set[str] = set()
     for rel in tree:
@@ -436,10 +446,8 @@ def read_snapshot(
 
     used = sum(len(c) for c in chunks)
     for rel in ordered:
-        path = repo / rel
-        if not path.is_file():
-            continue
-        if is_blocked_rel(rel):
+        path = _snapshot_path(repo, rel)
+        if path is None or not path.is_file():
             continue
         is_job = rel in focus_set
         if rel in body_skip and not is_job:
@@ -666,14 +674,7 @@ class LoopNodes:
                 note = f"{rel}: SyntaxError line {line or '?'}: {msg} -- write reverted"
                 compile_errors.append(note)
                 turn_refused.append(note)
-                tracked = git(self.ctx.repo, "ls-files", "--", rel, check=False)
-                if tracked.stdout.strip():
-                    git(self.ctx.repo, "checkout", "--", rel)
-                elif path.exists():
-                    try:
-                        path.unlink()
-                    except OSError:
-                        pass
+                revert_paths(self.ctx.repo, [rel])
         for note in turn_refused:
             if note not in self.ctx.refused:
                 self.ctx.refused.append(note)
@@ -803,6 +804,26 @@ class LoopNodes:
             note = f"reverted unapproved path {path}"
             if note not in self.ctx.refused:
                 self.ctx.refused.append(note)
+        verified: dict[str, Any] = {}
+        if revert:
+            # A green check against files we just discarded says nothing about
+            # the branch we will commit. Check the restored tree before scoring.
+            previous_host_secs = float(self.ctx.turn_scratch.get("host_check") or 0)
+            verified = self.host_check(state)
+            self.ctx.turn_scratch["host_check"] += previous_host_secs
+            state = {**state, **verified}
+            results_raw = state.get("check_results") or []
+            by_id = {int(r["upgrade_id"]): r for r in results_raw}
+            regenerated = unapproved_paths(
+                [p for p in changed_paths(self.ctx.repo) if p not in self.ctx.preexisting],
+                allowed,
+            )
+            if regenerated:
+                revert_paths(self.ctx.repo, regenerated)
+                raise SafetyError(
+                    "host recheck modified unapproved paths again; cannot verify the final tree: "
+                    + ", ".join(regenerated)
+                )
         night_changed = night_changed_rels(self.ctx.repo, base_sha) - self.ctx.preexisting
         job_red_ids = dict(state.get("job_red_ids") or {})
         row = by_id.get(job_uid)
@@ -992,6 +1013,7 @@ class LoopNodes:
             turns=turns_mirror,
         )
         return {
+            **verified,
             "brain": "critic",
             "brief": brief.to_dict(),
             "remaining_count": remaining,

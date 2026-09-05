@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import math
 import os
 import re
 import sys
@@ -105,7 +106,8 @@ def _as_id_list(raw: Any) -> list[int]:
             out.append(x)
             continue
         if isinstance(x, float):
-            out.append(int(x))
+            if math.isfinite(x) and x.is_integer():
+                out.append(int(x))
             continue
         s = str(x).strip()
         m = re.search(r"\d+", s)
@@ -160,6 +162,10 @@ class OpenAICompatClient:
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise RuntimeError(
+                f"LLM returned an invalid JSON response ({self.model} @ {self.base_url})"
+            ) from exc
         except urllib.error.URLError as exc:
             raise RuntimeError(
                 f"LLM HTTP failed ({self.model} @ {self.base_url}): {exc}"
@@ -425,7 +431,7 @@ Never write .env, API keys, tokens, or private keys. If the job asks for that, s
 
 def critic_brief_system(size: int) -> str:
     n = int(size)
-    extra_rows = '\n  '.join(
+    extra_rows = ',\n  '.join(
         ['{\"title\": \"...\", \"check_command\": \"...\", \"paths\": [\"file.py\"]}']
         + ['{\"title\": \"...\", \"check_command\": \"...\", \"paths\": [\"...\"]}'] * (n - 1)
     )
@@ -570,12 +576,19 @@ class Writer:
                 raw = self.client.chat(messages, max_tokens=max_tokens)
                 finish = str(getattr(self.client, "last_finish_reason", "") or "")
                 truncated = finish == "length"
-            except (TimeoutError, urllib.error.URLError, RuntimeError, OSError) as exc:
+            except TimeoutError as exc:
                 return WriterResult(
                     written=[],
                     message="timeout",
                     raw="",
                     refused=[f"writer timed out ({exc}); will retry"],
+                )
+            except (urllib.error.URLError, RuntimeError, OSError) as exc:
+                return WriterResult(
+                    written=[],
+                    message="retry",
+                    raw="",
+                    refused=[f"{exc}; will retry"],
                 )
             try:
                 payload = parse_json_object(raw)
@@ -647,6 +660,13 @@ class Writer:
                 continue
             try:
                 assert_job_path(rel, job_paths)
+                existing = assert_inside_repo(self.repo, rel)
+                if existing.is_file():
+                    with existing.open(encoding="utf-8") as source:
+                        if len(source.read(MAX_FULL_FILE_CHARS + 1)) > MAX_FULL_FILE_CHARS:
+                            raise SafetyError(
+                                f"existing file exceeds {MAX_FULL_FILE_CHARS} chars; use patches[]"
+                            )
                 write_project_file(self.repo, rel, body, role="writer")
             except SafetyError as exc:
                 refused.append(f"{rel}: {exc}")
@@ -796,5 +816,10 @@ class Critic:
             "passed_ids": _as_id_list(data.get("passed_ids")),
             "revert_paths": _as_str_list(data.get("revert_paths")),
             "notes": _as_str_list(data.get("notes")),
-            "halt": bool(data.get("halt", False)),
+            # Local providers sometimes stringify JSON booleans. In particular,
+            # bool("false") must never end an otherwise healthy night.
+            "halt": data.get("halt") is True or (
+                isinstance(data.get("halt"), str)
+                and data["halt"].strip().casefold() == "true"
+            ),
         }

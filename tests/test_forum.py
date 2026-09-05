@@ -226,7 +226,7 @@ def test_save_forum_render_failure_leaves_both_files_untouched(ns_home, monkeypa
     assert sorted(p.name for p in ns_home.iterdir()) == ["forum.json", "forum.lock", "forum.md"]
 
 
-def test_atomic_write_json_leaves_tmp_when_replace_fails(tmp_path, monkeypatch):
+def test_atomic_write_json_preserves_document_and_cleans_up_when_replace_fails(tmp_path, monkeypatch):
     home = tmp_path / "home"
     target = home / "forum.json"
 
@@ -236,8 +236,7 @@ def test_atomic_write_json_leaves_tmp_when_replace_fails(tmp_path, monkeypatch):
     monkeypatch.setattr("nightshift.forum.os.replace", boom)
     with pytest.raises(OSError):
         atomic_write_json(target, {"schema": 1})
-    assert sorted(p.name for p in home.iterdir()) == ["forum.json.tmp"]
-    assert json.loads((home / "forum.json.tmp").read_text()) == {"schema": 1}
+    assert list(home.iterdir()) == []
 
     monkeypatch.undo()
     atomic_write_json(target, {"schema": 1, "v": "old"})
@@ -245,7 +244,7 @@ def test_atomic_write_json_leaves_tmp_when_replace_fails(tmp_path, monkeypatch):
     with pytest.raises(OSError):
         atomic_write_json(target, {"schema": 1, "v": "new"})
     assert json.loads(target.read_text()) == {"schema": 1, "v": "old"}
-    assert sorted(p.name for p in home.iterdir()) == ["forum.json", "forum.json.tmp"]
+    assert sorted(p.name for p in home.iterdir()) == ["forum.json"]
 
 
 def test_with_home_lock_releases_on_exception(tmp_path):

@@ -96,12 +96,12 @@ def night_view(repo: Path, *, branch: str | None = None) -> dict[str, Any]:
             halt_reason = m.group(1)
         if "crashed" in text.lower():
             error = text
-    keepers = [
+    keeper_ids = {
         sha
         for j in jobs
         if j["state"] == "done"
         for sha in j["commits"]
-    ]
+    }
     log = commits_since(repo, base_sha) if base_sha else ""
     commit_rows = []
     for line in (log or "").splitlines():
@@ -112,9 +112,12 @@ def night_view(repo: Path, *, branch: str | None = None) -> dict[str, Any]:
             {
                 "sha": sha,
                 "subject": subject,
-                "keeper": sha in keepers or any(sha.startswith(k) for k in keepers),
+                "keeper": sha in keeper_ids or any(sha.startswith(k) for k in keeper_ids),
             }
         )
+    # Git lists newest commits first. Applying patches requires the opposite
+    # order, and a commit touching multiple completed jobs must appear once.
+    keepers = [row["sha"] for row in reversed(commit_rows) if row["keeper"]]
     stat = ""
     if base_sha:
         stat = diff_stat_against(

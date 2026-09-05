@@ -25,14 +25,15 @@ def check_hash(cmd: str) -> str:
     return hashlib.sha256(normalize_check_command(cmd).encode("utf-8")).hexdigest()[:12]
 
 
-def _path_set(paths: list[str] | None) -> set[str]:
-    return {normalize_rel(str(p)) for p in (paths or []) if str(p).strip()}
+def _path_set(paths: Any) -> set[str]:
+    if not isinstance(paths, (list, tuple, set, frozenset)):
+        return set()
+    return {normalize_rel(p) for p in paths if isinstance(p, str) and p.strip()}
 
 
 def _source_paths(paths: list[str] | None) -> frozenset[str]:
     out: set[str] = set()
-    for p in paths or []:
-        rel = normalize_rel(str(p))
+    for rel in _path_set(paths):
         if not rel:
             continue
         if rel.startswith("tests/") or Path(rel).name.startswith("test_"):
@@ -65,7 +66,7 @@ def repo_id(repo: Path) -> str:
 
 
 def pathset_hash(paths: list[str]) -> str:
-    joined = "\0".join(sorted(normalize_rel(str(p)) for p in paths if str(p).strip()))
+    joined = "\0".join(sorted(_path_set(paths)))
     return hashlib.sha1(joined.encode("utf-8")).hexdigest()[:12]
 
 
@@ -87,21 +88,25 @@ def _read_ledger_file(path: Path) -> dict[str, Any]:
         return {"entries": []}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return {"entries": []}
     if not isinstance(data, dict):
         return {"entries": []}
     if not isinstance(data.get("entries"), list):
         data["entries"] = []
+    else:
+        data["entries"] = [entry for entry in data["entries"] if isinstance(entry, dict)]
     return data
 
 
 def _write_ledger_file(path: Path, data: dict[str, Any]) -> None:
+    from .forum import atomic_write_json
+
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = dict(data or {})
     if not isinstance(payload.get("entries"), list):
         payload["entries"] = []
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    atomic_write_json(path, payload)
 
 
 def _merge_entry_lists(*lists: list[Any]) -> list[dict[str, Any]]:

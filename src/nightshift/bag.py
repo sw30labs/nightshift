@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
+from uuid import uuid4
 
 from .cmm import score_repo
 from .config import Settings
@@ -82,7 +83,9 @@ def pid_alive(pid: int | None, *, self_pid: int | None = None) -> bool:
         return False
     try:
         pid_i = int(pid)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if isinstance(pid, bool) or pid_i <= 0:
         return False
     me = os.getpid() if self_pid is None else int(self_pid)
     if pid_i == me:
@@ -93,7 +96,7 @@ def pid_alive(pid: int | None, *, self_pid: int | None = None) -> bool:
         return False
     except PermissionError:
         return True
-    except OSError:
+    except (OSError, OverflowError):
         return False
     return True
 
@@ -104,9 +107,14 @@ def load_bag(home: Path) -> dict[str, Any]:
         return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, TypeError):
+    except (OSError, ValueError, TypeError):
         return {}
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        return {}
+    for key in ("targets", "skipped"):
+        if key in data:
+            data[key] = [row for row in data[key] if isinstance(row, dict)] if isinstance(data[key], list) else []
+    return data
 
 
 def _write_bag(home: Path, data: dict[str, Any]) -> Path:
@@ -129,6 +137,8 @@ def load_merged_status(home: Path) -> dict[str, Any]:
 
 def recover_stale_bag(home: Path, *, locked: bool = False) -> None:
     """Mark a running bag halted when its pid is dead. This process is never stale."""
+    if not locked:
+        return with_home_lock(home, "bag", lambda: recover_stale_bag(home, locked=True))
     bag = load_bag(home)
     if bag.get("state") != "running":
         return
@@ -141,8 +151,7 @@ def recover_stale_bag(home: Path, *, locked: bool = False) -> None:
         if isinstance(t, dict) and t.get("state") in {"queued", "running"}:
             t["state"] = "skipped"
             t["error"] = "interrupted"
-    writer = _write_bag if locked else save_bag
-    writer(home, bag)
+    _write_bag(home, bag)
 
 
 def assert_shift_idle(
@@ -208,8 +217,15 @@ def acquire_bag(home: Path, payload: dict[str, Any], *, self_pid: int | None = N
             except (TypeError, ValueError):
                 same = False
             if same:
-                _write_bag(home, payload)
-                return
+                if (
+                    current.get("bag_id") == payload.get("bag_id")
+                    and payload.get("bag_id")
+                    and "current_index" not in current
+                ):
+                    # The deck reserves a bag before its worker starts. Keep a
+                    # halt request that arrived during that handoff.
+                    _write_bag(home, {**payload, "halt_bag": bool(current.get("halt_bag") or payload.get("halt_bag"))})
+                    return
             raise SafetyError("a bag is already running")
         assert_shift_idle(home, self_pid=me, allow_self=False)
         _write_bag(home, payload)
@@ -242,7 +258,7 @@ def _utc_now() -> str:
 
 
 def _new_bag_id(now: datetime) -> str:
-    return f"b-{now.strftime('%Y%m%d-%H%M%S')}"
+    return f"b-{now.strftime('%Y%m%d-%H%M%S')}-{uuid4().hex[:8]}"
 
 
 def _skip_reason(path: Path, *, allow_dirty: bool, skip_names: set[str]) -> str:
@@ -411,7 +427,12 @@ def select_bag(
         skip_meta=skip,
         meta_last=meta_last_b,
     )
-    save_bag(home, _bag_document(plan, settings, state="idle", runner_pid=None, now=now))
+    def _save_plan() -> None:
+        # Selection may take seconds; another process can start meanwhile.
+        assert_shift_idle(home, allow_self=False)
+        _write_bag(home, _bag_document(plan, settings, state="idle", runner_pid=None, now=now))
+
+    with_home_lock(home, "bag", _save_plan)
     return plan
 
 
@@ -492,11 +513,18 @@ def render_bag_table(plan: BagPlan) -> str:
     return "\n".join(lines)
 
 
-def _patch_bag(home: Path, fn: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
-    bag = load_bag(home)
-    fn(bag)
-    save_bag(home, bag)
-    return bag
+def mutate_bag(home: Path, fn: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
+    """Read, mutate, and replace a bag under one lock so progress and halts coexist."""
+    def _go() -> dict[str, Any]:
+        bag = load_bag(home)
+        fn(bag)
+        _write_bag(home, bag)
+        return bag
+
+    return with_home_lock(home, "bag", _go)
+
+
+_patch_bag = mutate_bag
 
 
 def _skip_rest(bag: dict[str, Any], reason: str, error: str = "") -> None:
@@ -549,18 +577,18 @@ def run_bag(plan: BagPlan, settings: Settings) -> dict[str, Any]:
             deadline=deadline.timestamp(),
         ),
     )
-    if settings.observe:
-        observe_start(
-            open_browser=settings.open_browser,
-            jsonl=str(home / "bag-events.jsonl"),
-            port=settings.loopscope_port,
-            host="127.0.0.1",
-        )
-        started_observe = True
-        # Inner nights keep their Ralph+graph on this bus; they must not steal :7788.
-        night_settings = replace(night_settings, observe=False)
     try:
         try:
+            if settings.observe:
+                started_observe = True
+                observe_start(
+                    open_browser=settings.open_browser,
+                    jsonl=str(home / "bag-events.jsonl"),
+                    port=settings.loopscope_port,
+                    host="127.0.0.1",
+                )
+                # Inner nights keep their Ralph+graph on this bus.
+                night_settings = replace(night_settings, observe=False)
             n = len(plan.targets)
             loop = ralph_loop(
                 "tonight's bag remaining",
@@ -710,18 +738,24 @@ def run_bag(plan: BagPlan, settings: Settings) -> dict[str, Any]:
             crashed = True
             raise
     finally:
-        bag = load_bag(home)
-        if bag.get("state") == "running":
+        def _finish(bag: dict[str, Any]) -> None:
+            if bag.get("state") != "running" or bag.get("bag_id") != plan.bag_id:
+                return
             if interrupted or bag.get("halt_bag"):
                 bag["state"] = "halted"
+                _skip_rest(bag, "interrupted" if interrupted else "bag_halted")
             elif crashed:
                 bag["state"] = "error"
+                bag["halt_reason"] = "error"
+                _skip_rest(bag, "error")
             else:
                 bag["state"] = "done"
             bag["runner_pid"] = None
-            save_bag(home, bag)
-        if started_observe:
-            stop_active()
+        try:
+            mutate_bag(home, _finish)
+        finally:
+            if started_observe:
+                stop_active()
     final = load_bag(home)
     return {
         "bag_id": plan.bag_id,

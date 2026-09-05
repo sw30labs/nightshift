@@ -28,6 +28,7 @@ from .graph import (
     NightState,
     build_cycle_app,
     next_halt,
+    job_paths_changed,
     parse_halt_at,
     read_snapshot,
     run_cycle,
@@ -41,7 +42,7 @@ from .ledger import (
     save_ledger,
 )
 from .llm import Critic, MockChatClient, OpenAICompatClient, Writer, persist_meta, probe_models, resolve_model_id
-from .models import Brief, SafetyError
+from .models import Brief, SafetyError, normalize_rel
 from .observe import attach, finish, log, metric, ralph_loop, start as observe_start, stop_active
 from .safety import assert_clean_tree, assert_safe_target
 from .status import StatusBoard, clear_halt, halt_requested
@@ -381,12 +382,11 @@ def freeze_brief(ctx: NightContext, snapshot: str, branch_name: str) -> Brief:
         if reason:
             brief.void_upgrade(upgrade.id, reason)
     if ctx.preexisting:
-        pre = {p.replace("\\", "/") for p in ctx.preexisting}
+        pre = {normalize_rel(p) for p in ctx.preexisting}
         for upgrade in list(brief.upgrades):
             if upgrade.void:
                 continue
-            paths = {p.replace("\\", "/") for p in upgrade.paths if str(p).strip()}
-            if paths & pre:
+            if job_paths_changed(pre, upgrade.paths):
                 brief.void_upgrade(upgrade.id, "dirty_in_tree")
     return brief
 
@@ -574,7 +574,7 @@ def run_night(
     now = clock()
     started_at = _iso_seconds(now)
     branch = night_branch_name(list_local_branches(target), now)
-    board.update(
+    board.reset(
         state="running",
         runner_pid=os.getpid(),
         repo=str(target),
@@ -591,7 +591,25 @@ def run_night(
         max_turns=settings.max_turns,
         host_python=interp.path,
     )
-    writer_client, critic_client = make_clients(settings, target)
+    try:
+        writer_client, critic_client = make_clients(settings, target)
+    except Exception as exc:
+        board.update(state="error", runner_pid=None, error=str(exc), brain="")
+        if forum.forum_enabled():
+            try:
+                forum.publish_error_stub(
+                    home=settings.home,
+                    repo=target,
+                    error=str(exc),
+                    mock=bool(settings.mock),
+                    started_at=started_at,
+                    bag_id=str(getattr(settings, "bag_id", "") or ""),
+                )
+            except Exception as publish_exc:
+                log(f"forum error stub failed: {publish_exc}")
+            else:
+                _mark_published(exc)
+        raise
     ctx = NightContext(
         repo=target,
         settings=settings,
@@ -609,8 +627,8 @@ def run_night(
         interpreter=interp.path,
         interpreter_source=interp.source,
     )
-    snapshot = freeze_snapshot(ctx)
     try:
+        snapshot = freeze_snapshot(ctx)
         brief = freeze_brief(ctx, snapshot, branch)
     except Exception as exc:
         board.update(
@@ -623,17 +641,18 @@ def run_night(
         # Path (3): still on base, no branch, no brief, no ledger. Stub only.
         _safe_publish_error(ctx, str(exc), exc, started_at=started_at)
         raise
-    checkout_night_branch(target, now, name=branch)
-    board.update(branch=branch)
-    jsonl = target / ".nightshift" / "events.jsonl"
-    jsonl.parent.mkdir(parents=True, exist_ok=True)
-    if settings.observe:
-        observe_start(
-            open_browser=settings.open_browser,
-            jsonl=str(jsonl),
-            port=settings.loopscope_port,
-        )
+    state: NightState = {}
     try:
+        checkout_night_branch(target, now, name=branch)
+        board.update(branch=branch)
+        jsonl = target / ".nightshift" / "events.jsonl"
+        jsonl.parent.mkdir(parents=True, exist_ok=True)
+        if settings.observe:
+            observe_start(
+                open_browser=settings.open_browser,
+                jsonl=str(jsonl),
+                port=settings.loopscope_port,
+            )
         nodes = LoopNodes(ctx)
         app = build_cycle_app(nodes)
         try:
@@ -847,6 +866,26 @@ def run_night(
             # tail's exception, if any, is marked (N3) once its row is in.
             _safe_publish(ctx, report, ledger, exc=tail_exc)
         return report
+    except Exception as exc:
+        # Branch setup, graph construction, and push failures also own a live
+        # status row. Always release that ownership before returning the error.
+        try:
+            board.update(state="error", runner_pid=None, brain="", error=str(exc))
+        except Exception:
+            pass  # Do not hide the original failure if the status disk failed.
+        if not state and not getattr(exc, "nightshift_forum_published", False):
+            if branch in list_local_branches(target):
+                _publish_failed_night(
+                    ctx,
+                    exc=exc,
+                    branch=branch,
+                    state={"remaining_count": brief.remaining_count},
+                    brief=brief,
+                    ledger=None,
+                    started_at=started_at,
+                )
+            else:
+                _safe_publish_error(ctx, str(exc), exc, started_at=started_at)
+        raise
     finally:
         stop_active()
-

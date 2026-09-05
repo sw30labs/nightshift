@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .forum import atomic_write_json, with_home_lock
+
 HALT_REQUEST = "halt.request"
 
 
@@ -56,30 +58,58 @@ class StatusBoard:
         self.current = RunStatus()
 
     def update(self, **kwargs: Any) -> RunStatus:
+        """Merge into the latest on-disk board, including updates from other writers."""
         with self._lock:
-            for key, value in kwargs.items():
-                if hasattr(self.current, key):
-                    setattr(self.current, key, value)
-            self.current.updated_at = datetime.now(timezone.utc).isoformat()
-            self.path.write_text(
-                json.dumps(self.current.to_dict(), indent=2), encoding="utf-8"
-            )
+            return with_home_lock(self.home, "status", lambda: self._save(kwargs))
+
+    def reset(self, **kwargs: Any) -> RunStatus:
+        """Start a fresh run without carrying checks or progress over from the last one."""
+        with self._lock:
+            return with_home_lock(self.home, "status", lambda: self._save(kwargs, reset=True))
+
+    def _save(self, values: dict[str, Any], *, reset: bool = False) -> RunStatus:
+        current = RunStatus() if reset else self._read_current()
+        for key, value in values.items():
+            if key in RunStatus.__dataclass_fields__:
+                setattr(current, key, value)
+        if (
+            type(current.runner_pid) is not int
+            or current.runner_pid <= 0
+            or current.runner_pid.bit_length() > 31
+        ):
+            current.runner_pid = None
+        current.updated_at = datetime.now(timezone.utc).isoformat()
+        atomic_write_json(self.path, current.to_dict())
+        self.current = current
+        return current
+
+    def _read_current(self) -> RunStatus:
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
             return self.current
+        if not isinstance(data, dict):
+            return self.current
+        defaults = RunStatus().to_dict()
+        values: dict[str, Any] = {}
+        for key, default in defaults.items():
+            value = data.get(key, default)
+            if default is None:
+                if type(value) is not int or value < 0:
+                    value = None
+                elif key == "runner_pid" and (value == 0 or value.bit_length() > 31):
+                    # os.kill raises OverflowError for values outside pid_t.
+                    value = None
+            elif isinstance(default, float):
+                value = value if type(value) in (int, float) else default
+            elif type(value) is not type(default):
+                value = default
+            values[key] = value
+        return RunStatus(**values)
 
     def read(self) -> RunStatus:
         with self._lock:
-            if self.path.is_file():
-                try:
-                    data = json.loads(self.path.read_text(encoding="utf-8"))
-                    self.current = RunStatus(
-                        **{
-                            k: v
-                            for k, v in data.items()
-                            if k in RunStatus.__dataclass_fields__
-                        }
-                    )
-                except (OSError, json.JSONDecodeError, TypeError):
-                    pass
+            self.current = self._read_current()
             return self.current
 
     def snapshot(self) -> dict[str, Any]:
@@ -88,20 +118,22 @@ class StatusBoard:
 
 def request_halt(home: Path, pid: int) -> Path:
     path = Path(home) / HALT_REQUEST
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
-            {
-                "pid": int(pid),
-                "requested_at": datetime.now(timezone.utc).isoformat(),
-            }
-        ),
-        encoding="utf-8",
+    with_home_lock(
+        home,
+        "halt",
+        lambda: atomic_write_json(path, {
+            "pid": int(pid),
+            "requested_at": datetime.now(timezone.utc).isoformat(),
+        }),
     )
     return path
 
 
 def clear_halt(home: Path) -> None:
+    with_home_lock(home, "halt", lambda: _clear_halt(home))
+
+
+def _clear_halt(home: Path) -> None:
     path = Path(home) / HALT_REQUEST
     try:
         path.unlink()
@@ -112,11 +144,17 @@ def clear_halt(home: Path) -> None:
 
 
 def halt_requested(home: Path, pid: int) -> bool:
+    return with_home_lock(home, "halt", lambda: _consume_halt(home, pid))
+
+
+def _consume_halt(home: Path, pid: int) -> bool:
     path = Path(home) / HALT_REQUEST
     if not path.is_file():
         return False
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("halt request must be an object")
         stored = int(data.get("pid") or 0)
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         try:
@@ -139,7 +177,7 @@ def halt_requested(home: Path, pid: int) -> bool:
 
 def live_owner(runner_pid: int | None, *, self_pid: int | None = None) -> bool:
     """True if runner_pid looks like a live Nightshift process (not this deck)."""
-    if runner_pid is None:
+    if type(runner_pid) is not int or runner_pid <= 0:
         return False
     me = os.getpid() if self_pid is None else self_pid
     if runner_pid == me:
@@ -149,5 +187,7 @@ def live_owner(runner_pid: int | None, *, self_pid: int | None = None) -> bool:
     except ProcessLookupError:
         return False
     except PermissionError:
+        return True
+    except (OSError, OverflowError):
         return False
     return True

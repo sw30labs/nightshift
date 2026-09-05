@@ -26,15 +26,17 @@ def git(
     *args: str,
     check: bool = True,
     extra_env: dict[str, str] | None = None,
+    literal: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     if extra_env:
         env.update(extra_env)
     proc = subprocess.run(
-        ["git", *args],
+        ["git", *(["--literal-pathspecs"] if literal else []), *args],
         cwd=repo,
         capture_output=True,
         text=True,
+        errors="surrogateescape",
         check=False,
         env=env,
     )
@@ -116,6 +118,8 @@ def checkout_night_branch(repo: Path, now: datetime, name: str | None = None) ->
 
 def assert_not_protected(repo: Path) -> str:
     branch = current_branch(repo)
+    if branch == "HEAD":
+        raise SafetyError("refusing to commit with detached HEAD")
     if branch in PROTECTED_BRANCHES:
         raise SafetyError(f"refusing to commit to {branch}")
     return branch
@@ -128,22 +132,25 @@ def changed_paths(repo: Path) -> list[str]:
         "core.quotepath=false",
         "status",
         "--porcelain",
+        "-z",
         "--untracked-files=all",
-    ).stdout.splitlines()
+    ).stdout.split("\0")
     out: list[str] = []
     seen: set[str] = set()
-    for line in porcelain:
-        if not line.strip():
+    records = iter(porcelain)
+    for line in records:
+        if not line:
             continue
-        raw = line[3:] if len(line) > 3 else line
-        if " -> " in raw:
-            raw = raw.split(" -> ", 1)[1]
-        rel = unescape_git_path(raw.strip())
-        rel = normalize_rel(rel)
-        if not rel or rel in seen:
-            continue
-        seen.add(rel)
-        out.append(rel)
+        names = [line[3:]]
+        if "R" in line[:2] or "C" in line[:2]:
+            source = next(records, "")
+            # A rename changes both paths; a copy leaves its source intact.
+            if "R" in line[:2]:
+                names.append(source)
+        for rel in names:
+            if rel and rel not in seen:
+                seen.add(rel)
+                out.append(rel)
     return out
 
 
@@ -155,33 +162,59 @@ def commit_paths(
     exclude: set[str] | None = None,
 ) -> str | None:
     assert_not_protected(repo)
-    skip = {normalize_rel(p) for p in (exclude or set()) if str(p).strip()}
-    if paths:
-        existing = [p for p in paths if p]
-        if not existing:
+    skip = set(exclude or ())
+    repo_root = repo.resolve()
+
+    def safe_path(rel: str) -> bool:
+        path = Path(rel)
+        if not rel or path.is_absolute() or ".." in path.parts:
+            return False
+        if is_blocked_rel(rel) or is_junk(rel):
+            return False
+        if any(rel == p or rel.startswith(p.rstrip("/") + "/") for p in skip):
+            return False
+        try:
+            # Check parents without dereferencing a final symlink: git stages
+            # the link itself, not the file it points to.
+            parent = (repo_root / path).parent.resolve().relative_to(repo_root)
+        except (OSError, ValueError, RuntimeError):
+            return False
+        return not is_blocked_rel(parent.as_posix())
+
+    if paths is not None:
+        requested = [p for p in paths if safe_path(p)]
+        if not requested:
             return None
-        # -f: .nightshift/ is often gitignored; freeze/summary still must land
-        git(repo, "add", "-f", "--", *existing)
+        # Expand directories before filtering; `git add directory` could stage
+        # secrets or excluded user work nested beneath an otherwise safe path.
+        candidates: list[str] = []
+        for args in (
+            ("ls-files", "-z", "--cached", "--others", "--exclude-standard"),
+            ("ls-files", "-z", "--others", "--ignored", "--exclude-standard"),
+            ("diff", "--name-only", "-z", "HEAD"),
+        ):
+            candidates.extend(git(repo, *args, "--", *requested, literal=True).stdout.split("\0"))
     else:
-        to_add = [
-            p
-            for p in changed_paths(repo)
-            if p not in skip and not is_junk(p)
-        ]
-        if not to_add:
-            git(repo, "reset", "-q", check=False)
-            return None
-        present = [p for p in to_add if (repo / p).exists()]
-        missing = [p for p in to_add if p not in present]
-        for i in range(0, len(present), 500):
-            git(repo, "add", "--", *present[i : i + 500])
-        for i in range(0, len(missing), 500):
-            git(repo, "add", "-u", "--", *missing[i : i + 500], check=False)
-    staged = git(repo, "diff", "--cached", "--name-only").stdout.strip()
-    if not staged:
-        git(repo, "reset", "-q", check=False)
+        candidates = changed_paths(repo)
+    to_add = list(dict.fromkeys(p for p in candidates if safe_path(p)))
+    if not to_add:
         return None
-    git(repo, "commit", "-m", message, extra_env=NIGHTSHIFT_GIT_ENV)
+    indexed = set(git(repo, "ls-files", "-z", "--", *to_add, literal=True).stdout.split("\0"))
+    # `git rm` already removed staged deletions from the index. Passing those
+    # absent paths to `git add` fails; retain them only in the commit scope.
+    stage = [
+        p for p in to_add
+        if p in indexed or (repo / p).exists() or (repo / p).is_symlink()
+    ]
+    for i in range(0, len(stage), 500):
+        # Explicit metadata may be ignored; automatic commits respect ignores.
+        flags = ["-f"] if paths is not None else []
+        git(repo, "add", *flags, "--", *stage[i : i + 500], literal=True)
+    staged = git(repo, "diff", "--cached", "--name-only", "-z", "--", *to_add, literal=True).stdout
+    if not staged:
+        return None
+    # --only leaves unrelated entries in the user's index staged for later.
+    git(repo, "commit", "--only", "-m", message, "--", *to_add, extra_env=NIGHTSHIFT_GIT_ENV, literal=True)
     return rev_parse(repo, "HEAD")
 
 
@@ -199,26 +232,35 @@ def revert_paths(repo: Path, paths: list[str]) -> list[str]:
         if Path(rel).is_absolute():
             done.append(f"SKIP (outside repo): {rel}")
             continue
-        rel_n = normalize_rel(rel)
+        rel_n = rel
+        if ".." in Path(rel_n).parts:
+            done.append(f"SKIP (outside repo): {rel_n}")
+            continue
         if not rel_n or is_meta_path(rel_n):
             continue
         if is_blocked_rel(rel_n) or is_junk(rel_n):
             done.append(f"SKIP (blocked): {rel_n}")
             continue
-        candidate = (repo / rel_n).resolve()
+        candidate = repo_resolved / rel_n
         try:
-            candidate.relative_to(repo_resolved)
-        except ValueError:
+            parent = candidate.parent.resolve().relative_to(repo_resolved)
+        except (OSError, ValueError, RuntimeError):
             done.append(f"SKIP (outside repo): {rel_n}")
             continue
-        if any(part.lower() == ".git" for part in candidate.relative_to(repo_resolved).parts):
+        if is_blocked_rel(parent.as_posix()):
             done.append(f"SKIP (blocked): {rel_n}")
             continue
-        tracked = git(repo, "ls-files", "--", rel_n, check=False)
-        if tracked.stdout.strip():
-            git(repo, "checkout", "--", rel_n)
+        if candidate.is_dir() and not candidate.is_symlink():
+            continue
+        tracked = git(repo, "cat-file", "-t", f"HEAD:{rel_n}", check=False)
+        if tracked.returncode == 0 and tracked.stdout.strip() == "blob":
+            git(repo, "restore", "--source=HEAD", "--staged", "--worktree", "--", rel_n, literal=True)
             done.append(rel_n)
-        elif candidate.exists():
+        else:
+            # Unstage newly added files without touching any other index entry.
+            indexed = git(repo, "ls-files", "-z", "--", rel_n, literal=True).stdout
+            if indexed:
+                git(repo, "reset", "-q", "HEAD", "--", rel_n, literal=True)
             if candidate.is_file() or candidate.is_symlink():
                 candidate.unlink()
                 done.append(rel_n)
@@ -267,6 +309,7 @@ def commits_touching(repo: Path, base: str, paths: list[str]) -> list[str]:
         "--",
         *paths,
         check=False,
+        literal=True,
     )
     return [ln.strip() for ln in proc.stdout.splitlines() if ln.strip()]
 

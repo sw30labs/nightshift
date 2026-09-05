@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -134,10 +135,6 @@ def resolve_interpreter(repo: Path | None) -> Interpreter:
         key = str(repo.expanduser().resolve())
     except OSError:
         key = str(repo)
-    cached = _INTERP_CACHE.get(key)
-    if cached is not None:
-        return cached
-
     env_override = (os.environ.get("NIGHTSHIFT_TARGET_PYTHON") or "").strip()
     if env_override:
         picked = Interpreter(path=env_override, source="override")
@@ -147,13 +144,16 @@ def resolve_interpreter(repo: Path | None) -> Interpreter:
     if host_json.is_file():
         try:
             data = json.loads(host_json.read_text(encoding="utf-8"))
-            py = str((data or {}).get("python") or "").strip()
+            py = str(data.get("python") or "").strip() if isinstance(data, dict) else ""
             if py:
                 picked = Interpreter(path=py, source="override")
                 _INTERP_CACHE[key] = picked
                 return picked
         except (OSError, json.JSONDecodeError, TypeError):
             pass
+    cached = _INTERP_CACHE.get(key)
+    if cached is not None and cached.source != "override" and Path(cached.path).is_file():
+        return cached
     for rel in (".venv/bin/python", "venv/bin/python"):
         cand = repo / rel
         if cand.is_file():
@@ -191,13 +191,26 @@ def _is_python_exe(exe: str) -> bool:
 
 
 def needs_shell(command: str) -> bool:
-    """Compound critic checks (!, &&, pipes) must run under /bin/sh."""
-    if any(tok in command for tok in ("&&", "||", ";", "|", "`", "$(", "!", ">", "<")):
-        return True
-    if any(ch in command for ch in "*?~"):
-        return True
-    if "$" in command:
-        return True
+    """Detect shell syntax without interpreting punctuation inside code strings."""
+    quote = ""
+    escaped = False
+    for ch in command:
+        if escaped:
+            escaped = False
+            continue
+        if ch == "\\" and quote != "'":
+            escaped = True
+            continue
+        if quote:
+            if ch == quote:
+                quote = ""
+            elif quote == '"' and ch in "$`":
+                return True
+            continue
+        if ch in "'\"":
+            quote = ch
+        elif ch in ";|&`!><*?~$\n()":
+            return True
     # VAR=value cmd
     if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=\S+\s+\S", command.strip()):
         return True
@@ -239,23 +252,51 @@ def argv_for(command: str, repo: Path | None = None) -> list[str]:
     return _inject_pytest_flags(parts)
 
 
-_PY_M_PYTEST = re.compile(r"(?<![\w/.-])python3?\s+-m\s+pytest(?!\s+-o)")
-_PY_C = re.compile(r"(?<![\w/.-])python3?\s+-c\b")
-_BARE_PYTEST = re.compile(
-    r"(?:^|(?<=&&)|(?<=\|\|)|(?<=;)|(?<=\|)|(?<=\n)|(?<=\())(\s*)pytest(?!\s+-o)(?!\w)"
+_SHELL_PYTHON = re.compile(
+    r"(?:^|[;&|(\n])\s*(?:!\s+)?"
+    r"(?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|()]+\s+)*"
+    r"(?P<exe>python(?:\d+(?:\.\d+)*)?|pytest)(?=\s|$|[;&|)])"
 )
 
 
 def rewrite_shell_command(command: str, repo: Path | None = None) -> str:
-    py = interpreter_for(repo)
-    quoted = shlex.quote(py)
-    rewritten = _PY_M_PYTEST.sub(f"{quoted} -m pytest -o addopts= -rA", command)
-    rewritten = _PY_C.sub(f"{quoted} -c", rewritten)
-
-    def _bare(match: re.Match[str]) -> str:
-        return f"{match.group(1)}{quoted} -m pytest -o addopts= -rA"
-
-    return _BARE_PYTEST.sub(_bare, rewritten)
+    quoted = shlex.quote(interpreter_for(repo))
+    # Match executable tokens only, retaining every original quoted string.
+    # Regex replacement across raw shell text used to rewrite Python source.
+    masked = list(command)
+    quote = ""
+    escaped = False
+    for i, ch in enumerate(command):
+        if escaped:
+            masked[i] = " "
+            escaped = False
+        elif ch == "\\" and quote != "'":
+            masked[i] = " "
+            escaped = True
+        elif quote:
+            masked[i] = " "
+            if ch == quote:
+                quote = ""
+        elif ch in "'\"":
+            masked[i] = " "
+            quote = ch
+    plain = "".join(masked)
+    replacements: list[tuple[int, int, str]] = []
+    for match in _SHELL_PYTHON.finditer(plain):
+        start, end = match.span("exe")
+        exe = match.group("exe")
+        if exe == "pytest":
+            replacement = f"{quoted} -m pytest -o addopts= -rA"
+        else:
+            replacement = quoted
+            module = re.match(r"\s+-m\s+pytest(?=\s|$|[;&|)])", plain[end:])
+            if module:
+                end += module.end()
+                replacement += " -m pytest -o addopts= -rA"
+        replacements.append((start, end, replacement))
+    for start, end, replacement in reversed(replacements):
+        command = command[:start] + replacement + command[end:]
+    return command
 
 
 def parse_pytest(output: str) -> dict[str, Any]:
@@ -307,13 +348,9 @@ def count_failed(output: str) -> int:
     n = len(parsed["failed"]) + len(parsed["errors"])
     if n:
         return n
-    m = _FAILED_COUNT.search(output or "")
-    if m:
-        return int(m.group(1))
-    m = _ERROR_COUNT.search(output or "")
-    if m:
-        return int(m.group(1))
-    return 0
+    failed = _FAILED_COUNT.findall(output or "")
+    errors = _ERROR_COUNT.findall(output or "")
+    return (int(failed[-1]) if failed else 0) + (int(errors[-1]) if errors else 0)
 
 
 def check_command_file_tokens(command: str) -> list[str]:
@@ -351,16 +388,19 @@ def _kill_group(proc: subprocess.Popen[str]) -> None:
 
 
 def run_check(repo: Path, upgrade: Upgrade, timeout: int) -> CheckResult:
-    interp = resolve_interpreter(repo)
-    env = _check_env(repo, interp)
     command = upgrade.check_command
     try:
+        interp = resolve_interpreter(repo)
+        env = _check_env(repo, interp)
         if needs_shell(command):
             rewritten = rewrite_shell_command(command, repo)
-            popen: str | list[str] = ["/bin/sh", "-c", "set -o pipefail; " + rewritten]
+            shell = shutil.which("bash")
+            if shell is None:
+                raise ValueError("bash is required for compound host checks with pipefail")
+            popen: str | list[str] = [shell, "-o", "pipefail", "-c", rewritten]
         else:
             popen = argv_for(command, repo)
-    except ValueError as exc:
+    except (OSError, ValueError, RuntimeError) as exc:
         return CheckResult(
             upgrade_id=upgrade.id,
             command=upgrade.check_command,
@@ -375,6 +415,7 @@ def run_check(repo: Path, upgrade: Upgrade, timeout: int) -> CheckResult:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            errors="replace",
             env=env,
             start_new_session=True,
         )

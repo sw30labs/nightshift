@@ -88,28 +88,19 @@ def find_repos(
 
 
 def _quick_status(repo: Path) -> tuple[str, bool]:
-    import subprocess
+    from .gitops import changed_paths, git
+    from .models import SafetyError
+    from .safety import is_junk, is_meta_path
 
     try:
-        branch = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=repo,
-            capture_output=True,
-            text=True,
-            check=False,
-        ).stdout.strip() or "?"
-        porcelain = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=repo,
-            capture_output=True,
-            text=True,
-            check=False,
-        ).stdout
-        dirty_lines = [
-            ln
-            for ln in porcelain.splitlines()
-            if ln.strip() and ".nightshift/" not in ln
-        ]
-        return branch, bool(dirty_lines)
-    except OSError:
-        return "?", False
+        # symbolic-ref also works before a repository's first commit.
+        branch = git(repo, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
+        name = branch.stdout.strip() if branch.returncode == 0 else "HEAD"
+        dirty = any(
+            not is_meta_path(path) and not is_junk(path)
+            for path in changed_paths(repo)
+        )
+        return name or "?", dirty
+    except (OSError, SafetyError):
+        # An unreadable index must not be presented as a clean repository.
+        return "?", True

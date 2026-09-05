@@ -90,7 +90,12 @@ def _has_git_part(parts: tuple[str, ...]) -> bool:
 
 def assert_inside_repo(repo: Path, rel: str) -> Path:
     repo_r = resolve_repo(repo)
-    candidate = (repo_r / rel).resolve()
+    norm = normalize_job_rel(rel)
+    if _has_git_part(Path(norm).parts):
+        raise SafetyError("writer may not touch .git/")
+    if is_blocked_rel(norm):
+        raise SafetyError(f"refusing to write protected path: {rel}")
+    candidate = (repo_r / norm).resolve()
     try:
         candidate.relative_to(repo_r)
     except ValueError as exc:
@@ -98,12 +103,18 @@ def assert_inside_repo(repo: Path, rel: str) -> Path:
     rel_parts = candidate.relative_to(repo_r).parts
     if _has_git_part(rel_parts):
         raise SafetyError("writer may not touch .git/")
-    if is_blocked_name(candidate.name):
+    if any(is_blocked_name(part) for part in rel_parts):
         raise SafetyError(f"refusing to write {candidate.name}")
+    # The job lock names lexical paths. Following a symlink would let an
+    # approved filename silently write some other file (including metadata).
+    lexical = repo_r / norm
+    if candidate != lexical:
+        raise SafetyError(f"writer may not follow symlinks: {rel}")
     return candidate
 
 
 def is_blocked_name(name: str) -> bool:
+    name = name.lower()
     if name in SNAPSHOT_OK_ENV_NAMES:
         return False
     if name in BLOCKED_WRITE_NAMES:
@@ -119,7 +130,7 @@ def is_blocked_rel(rel: str) -> bool:
         return False
     if _has_git_part(Path(norm).parts):
         return True
-    return is_blocked_name(Path(norm).name)
+    return any(is_blocked_name(part) for part in Path(norm).parts)
 
 
 def is_junk(rel: str) -> bool:
@@ -156,6 +167,7 @@ def git_visible_files(repo: Path) -> list[str] | None:
                 "-c",
                 "core.quotepath=false",
                 "ls-files",
+                "-z",
                 "-co",
                 "--exclude-standard",
             ],
@@ -167,7 +179,7 @@ def git_visible_files(repo: Path) -> list[str] | None:
         return None
     if proc.returncode != 0:
         return None
-    return [ln.strip().replace("\\", "/") for ln in proc.stdout.splitlines() if ln.strip()]
+    return list(dict.fromkeys(path for path in proc.stdout.split("\0") if path))
 
 
 def is_meta_path(rel: str) -> bool:
@@ -183,7 +195,10 @@ def normalize_job_rel(rel: str) -> str:
         raise SafetyError(f"absolute path refused: {rel}")
     if ".." in Path(raw).parts:
         raise SafetyError(f"path traversal refused: {rel}")
-    return normalize_rel(raw)
+    norm = Path(raw).as_posix()
+    if norm == "." or "\0" in norm:
+        raise SafetyError(f"invalid file path: {rel}")
+    return norm
 
 
 def _inside_job_paths(norm: str, allowed: list[str]) -> bool:

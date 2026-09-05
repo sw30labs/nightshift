@@ -2,6 +2,8 @@
 
 Vision, not a schedule. Today: pick a repo, or pick **tonight's bag**. Freeze two checkable upgrades, sleep, merge or drop. The product stays a `git diff`. `main` is never touched. You still decide what lands.
 
+How it works now: [docs/design.md](docs/design.md) · [docs/architecture.md](docs/architecture.md) · [docs/adr/](docs/adr/).
+
 ## The loop
 
 `nightshift bag` looks at local clones under `NIGHTSHIFT_ROOTS` (default `~/REPOS`) — recency, CMM holes, optional `~/.nightshift/prior.json` liked/skip — and picks **tonight's bag**. Always include **meta Nightshift** unless `--skip-meta`: squeeze RSI out of the tool that runs the nights. Nights run **one after another** against the one writer and one critic. Morning you get branches, not a chatbot.

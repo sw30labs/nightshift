@@ -1,10 +1,12 @@
 # Nightshift: Portfolio orchestrator, shared forum, CMM atlas
 
+> **Read this last.** The contract is [`design.md`](design.md), the map is [`architecture.md`](architecture.md), the decisions are [`adr/`](adr/). This file is the 2026-09-03 implementation notebook (rev 4). **N1–N10** below are still cited in code. Several “Now” claims at the top are stale (`cmd_run` now refuses a second shift; `status.json` merge-on-disk + `reset()`; unique-temp atomic writes).
+
 | Field | Value |
 |---|---|
 | Author | Nicolas Cravino / sw30labs (personal-capacity OSS) |
 | Date | 2026-09-03 |
-| Status | Draft (rev 4) — implementation notes appended |
+| Status | Historical notebook (rev 4) — superseded for reading |
 | Repo | `/Users/spider/REPOS/nightshift` (`https://github.com/sw30labs/nightshift`) |
 | Baseline | `f50ce9a` — *Make nights land: job-first snapshot, clean-tree, morning CLI* |
 | Audience | Senior engineers who already know this tree |

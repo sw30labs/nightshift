@@ -25,7 +25,9 @@ Then a Ralph loop until remaining is 0, the clock (default 06:00 local), or `max
 - `.nightshift/summary.md` — done, void, remaining
 - `forum.md` + a CMM histogram at estate grain (`nightshift morning --portfolio`)
 
-Merge it, cherry-pick it, or delete it. Now / Next / Later: [ROADMAP.md](ROADMAP.md).
+Merge it, cherry-pick it, or delete it.
+
+[Design](docs/design.md) · [Architecture](docs/architecture.md) (DFD + ERD) · [ADRs](docs/adr/) · Now / Next / Later: [ROADMAP.md](ROADMAP.md).
 
 ![Overnight RSI — portfolio, bag, forum, CMM](docs/roadmap-loop.png)
 
@@ -254,7 +256,7 @@ Host python precedence: `NIGHTSHIFT_TARGET_PYTHON` or `.nightshift/host.json` `{
 pytest
 ```
 
-Covered: brief freeze (cannot add extra upgrades once frozen; size 2-5), void plus ledger duplicate, critic cannot write files, host-check truth, branch naming, revert of unapproved paths (including parent-dir skip), mock end-to-end to remaining_count 0 on a fixture git repo, command deck list plus Run, forum publish/reuse, CMM predicates, bag select/run plus the bag lock, deck BAG / RUN BAG / `/cmm`.
+Covered: brief freeze (cannot add extra upgrades once frozen; size 2-5), void plus ledger duplicate, critic cannot write files, host-check truth, branch naming, revert of unapproved paths (including parent-dir skip), mock end-to-end to remaining_count 0 on a fixture git repo, command deck list plus Run, forum publish/reuse, CMM predicates, bag select/run plus the bag lock, deck BAG / RUN BAG / `/cmm`, status/halt races, unsafe deck POSTs.
 Fixture path: failing tests, then patches, then real pytest, then summary.md, then night branch exists and main is unchanged. Tests never run a night on this checkout.
 
 ## Layout

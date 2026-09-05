@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from pathlib import Path
@@ -16,11 +17,11 @@ from .bag import (
     assert_shift_idle,
     load_bag,
     load_merged_status,
+    mutate_bag,
     pid_alive,
     plan_to_dict,
     recover_stale_bag,
     run_bag,
-    save_bag,
     select_bag,
 )
 from .cmm import histogram, population, render_cmm_html, write_cmm
@@ -49,7 +50,7 @@ class DeckState:
     def _live_owner(self, runner_pid: int | None) -> bool:
         if self._thread is not None and self._thread.is_alive():
             return True
-        if runner_pid is None or runner_pid == os.getpid():
+        if type(runner_pid) is not int or runner_pid <= 0 or runner_pid == os.getpid():
             return False
         try:
             os.kill(runner_pid, 0)
@@ -57,6 +58,8 @@ class DeckState:
             return False
         except PermissionError:
             return True
+        except (OSError, OverflowError):
+            return False
         return True
 
     def _reconcile_status_locked(self):
@@ -72,12 +75,16 @@ class DeckState:
                     "Select a repository and press Run to start again."
                 ),
             )
-        requested = False
-        if status.state == "running" and status.runner_pid:
-            path = self.settings.state_dir() / "halt.request"
-            requested = path.is_file()
-        if status.halt_requested != requested:
-            status = self.board.update(halt_requested=requested)
+        # halt.request is consumed by the runner. Once the board says halt
+        # was requested, keep that flag for the rest of the running shift so
+        # polling cannot re-enable Halt mid-turn.
+        if (
+            status.state == "running"
+            and status.runner_pid
+            and not status.halt_requested
+            and (self.settings.state_dir() / "halt.request").is_file()
+        ):
+            status = self.board.update(halt_requested=True)
         return status
 
     def snapshot(self) -> dict[str, Any]:
@@ -107,34 +114,13 @@ class DeckState:
         allow_dirty: bool,
         dry_run: bool,
     ) -> Settings:
-        return Settings(
-            writer_base_url=self.settings.writer_base_url,
-            writer_model=self.settings.writer_model,
-            critic_base_url=self.settings.critic_base_url,
-            critic_model=self.settings.critic_model,
-            api_key=self.settings.api_key,
-            roots=self.settings.roots,
-            halt_at=self.settings.halt_at,
-            max_turns=self.settings.max_turns,
-            check_timeout=self.settings.check_timeout,
+        return replace(
+            self.settings,
             mock=self.settings.mock if mock is None else mock,
             push=False,
-            include_deprecated=self.settings.include_deprecated,
-            observe=self.settings.observe,
-            home=self.settings.home,
-            loopscope_port=self.settings.loopscope_port,
-            writer_timeout=self.settings.writer_timeout,
-            critic_timeout=self.settings.critic_timeout,
-            stall_after=self.settings.stall_after,
             brief_size=brief_size,
-            job_turns=self.settings.job_turns,
             allow_dirty=allow_dirty,
             dry_run=dry_run,
-            bag_size=self.settings.bag_size,
-            skip_meta=self.settings.skip_meta,
-            meta_last=self.settings.meta_last,
-            bag_min_minutes=self.settings.bag_min_minutes,
-            forum_enabled=self.settings.forum_enabled,
         )
 
     def start_run(
@@ -184,7 +170,7 @@ class DeckState:
                         brain="",
                     )
 
-            self.board.update(
+            self.board.reset(
                 state="running",
                 runner_pid=os.getpid(),
                 repo=path,
@@ -288,8 +274,7 @@ class DeckState:
             if not bag_live and not night_live:
                 return {"ok": False, "error": "no shift running"}
             if bag_live:
-                bag["halt_bag"] = True
-                save_bag(home, bag)
+                mutate_bag(home, lambda current: current.update(halt_bag=True))
             if night_live:
                 request_halt(home, int(status.runner_pid))
                 self.board.update(halt_requested=True)
@@ -306,6 +291,7 @@ def make_handler(deck: DeckState):
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             self.wfile.write(body)
 
@@ -360,6 +346,7 @@ def make_handler(deck: DeckState):
                         "critic_timeout": deck.settings.critic_timeout,
                         "check_timeout": deck.settings.check_timeout,
                         "include_deprecated": deck.settings.include_deprecated,
+                        "allow_dirty": deck.settings.allow_dirty,
                     },
                 )
                 return
@@ -371,13 +358,46 @@ def make_handler(deck: DeckState):
 
         def do_POST(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
-            length = int(self.headers.get("Content-Length") or "0")
+            if parsed.path not in {"/api/run", "/api/bag", "/api/halt"}:
+                self._json(404, {"error": "not found"})
+                return
+            # These routes can start local code execution. A foreign website
+            # must not be able to invoke them with a form or simple fetch.
+            origin = self.headers.get("Origin")
+            if origin and origin != f"http://{self.headers.get('Host')}":
+                self._json(403, {"error": "cross-origin requests are not allowed"})
+                return
+            if self.headers.get_content_type() != "application/json":
+                self._json(415, {"error": "Content-Type must be application/json"})
+                return
+            if self.headers.get("Transfer-Encoding"):
+                self._json(400, {"error": "Transfer-Encoding is not supported"})
+                return
+            try:
+                length = int(self.headers.get("Content-Length") or "0")
+            except ValueError:
+                self._json(400, {"error": "invalid Content-Length"})
+                return
+            if length < 0 or length > 65536:
+                self._json(413, {"error": "request body must be at most 64 KiB"})
+                return
             raw = self.rfile.read(length) if length else b"{}"
             try:
                 payload = json.loads(raw.decode("utf-8") or "{}")
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, UnicodeDecodeError):
                 self._json(400, {"error": "invalid json"})
                 return
+            if not isinstance(payload, dict):
+                self._json(400, {"error": "request body must be a JSON object"})
+                return
+            for key in ("mock", "allow_dirty", "dry_run", "dry", "skip_meta", "meta_last"):
+                if key in payload and not isinstance(payload[key], bool):
+                    self._json(400, {"error": f"{key} must be a boolean"})
+                    return
+            for key in ("brief_size", "size"):
+                if key in payload and type(payload[key]) is not int:
+                    self._json(400, {"error": f"{key} must be an integer"})
+                    return
             if parsed.path == "/api/halt":
                 result = deck.request_halt()
                 self._json(200 if result.get("ok") else 409, result)
@@ -417,7 +437,10 @@ def make_handler(deck: DeckState):
                 self._json(200 if result.get("ok") else 409, result)
                 return
             if parsed.path == "/api/run":
-                path = str(payload.get("path") or "").strip()
+                if not isinstance(payload.get("path", ""), str):
+                    self._json(400, {"error": "path must be a string"})
+                    return
+                path = payload.get("path", "").strip()
                 if not path:
                     self._json(400, {"error": "path required"})
                     return

@@ -164,12 +164,87 @@
     .t.void .uid::after { content: " VOID"; color: var(--rust); }
     .t .n, .t .uid, .t .sha { color: var(--stone); font-size: 12px; }
     details.notes { color: var(--stone); font-size: 12px; }
+    :root { --bg: #121311; --panel: #181a16; --panel-2: #22251f; --line: #34382f; --stone: #abb1a0; --paper: #edf0e5; --rust: #ee9261; --rust-dim: #633721; --moss: #bbd89b; }
+    body { font-size: 13px; }
+    header { padding: 1.2rem 2rem; background: var(--panel); }
+    header h1 { color: var(--paper); letter-spacing: .28em; }
+    header .tag { font-size: 10px; }
+    main { grid-template-columns: minmax(260px, 300px) minmax(0, 1fr); }
+    aside { padding: 1.6rem 1.25rem; }
+    section { padding: 1.8rem 2.4rem; min-width: 0; max-width: 1400px; width: 100%; margin: 0 auto; }
+    h2 { letter-spacing: .15em; font-size: 10px; }
+    button, .chk { border-radius: 5px; letter-spacing: .04em; }
+    button { min-height: 36px; }
+    button.primary { background: var(--moss); color: var(--bg); border-color: var(--moss); font-weight: 700; }
+    button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible, .up:focus-visible { outline: 2px solid var(--rust); outline-offset: 3px; }
+    .connection { display: inline-flex; align-items: center; gap: 7px; color: var(--moss); font-size: 10px; letter-spacing: .08em; }
+    .connection::before { content: ''; width: 6px; height: 6px; background: currentColor; border-radius: 50%; }
+    .connection.offline { color: var(--rust); }
+    .aside-heading { display: flex; justify-content: space-between; align-items: baseline; }
+    #repo-count { font-size: 11px; color: var(--stone); }
+    #repo-search { width: 100%; padding: .7rem .8rem; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); color: var(--paper); font: inherit; margin: .2rem 0 1rem; }
+    #repos { max-height: 42vh; overflow: auto; margin-bottom: 1.8rem; }
+    #repos li { padding: 0; }
+    #repos button { text-align: left; width: 100%; border: 0; background: transparent; padding: .7rem; }
+    #repos .meta, #bag .meta { font-size: 10px; overflow-wrap: anywhere; margin-top: .3rem; }
+    #repos li.sel { border-color: var(--moss); border-radius: 5px; }
+    #repos .empty { padding: .7rem 0; }
+    #bag { list-style: none; padding: 0; margin: 0; }
+    #bag li { position: relative; border-left: 2px solid var(--line); padding: .7rem .8rem; margin: 0 0 .5rem; background: var(--panel-2); border-radius: 0 5px 5px 0; }
+    #bag li.running { border-color: var(--rust); }
+    #bag li.done { border-color: var(--moss); }
+    #bag .name, #bag .meta { display: block; }
+    #bag .meta { color: var(--stone); }
+    .eyebrow { font-size: 10px; letter-spacing: .2em; color: var(--moss); margin: 0 0 .8rem; }
+    .mission { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; }
+    .mission h2 { font: 500 clamp(28px, 3.3vw, 46px)/1.08 ui-sans-serif, system-ui, sans-serif; letter-spacing: -.04em; color: var(--paper); margin: 0 0 .8rem; overflow-wrap: anywhere; }
+    #mission-detail { color: var(--stone); margin: 0; max-width: 700px; overflow-wrap: anywhere; }
+    #mode { color: var(--rust); border: 1px solid var(--line); border-radius: 20px; padding: .4rem .7rem; font-size: 10px; white-space: nowrap; }
+    #selected { overflow-wrap: anywhere; font-size: 11px; }
+    .controls { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 1rem 1.1rem; margin-bottom: 1.3rem; }
+    .controls .row { margin-bottom: 0; }
+    #phase { font-size: 11px; overflow-wrap: anywhere; }
+    .scoreboard { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 1px; border: 1px solid var(--line); background: var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 1rem; }
+    .score { background: var(--panel); padding: 1.2rem 1.4rem; }
+    .score-label { display: block; font-size: 10px; color: var(--stone); letter-spacing: .14em; margin-bottom: .6rem; }
+    .count { font: 500 52px/1 ui-sans-serif, system-ui, sans-serif; letter-spacing: -.05em; margin: 0; }
+    .score-number { display: block; font: 500 36px/1.4 ui-sans-serif, system-ui, sans-serif; }
+    #done-count { color: var(--moss); }
+    #void-count { color: var(--stone); }
+    .progress-label { display: flex; justify-content: space-between; font-size: 10px; color: var(--stone); margin-bottom: .45rem; }
+    progress { display: block; appearance: none; width: 100%; height: 5px; border: 0; background: var(--line); border-radius: 3px; margin-bottom: 1rem; }
+    progress::-webkit-progress-bar { background: var(--line); border-radius: 3px; }
+    progress::-webkit-progress-value { background: var(--moss); border-radius: 3px; }
+    progress::-moz-progress-bar { background: var(--moss); }
+    .brains { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin: 1.1rem 0 1.8rem; }
+    .lamp { border: 1px solid var(--line); border-radius: 5px; padding: .8rem; font-size: 10px; flex-wrap: wrap; }
+    .lamp.on { border-color: var(--rust); background: #292119; }
+    .work-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 1.3rem; margin-bottom: .7rem; }
+    .work-grid > div { min-width: 0; }
+    .up { border-radius: 5px; padding: .7rem; grid-template-columns: 3.3em minmax(0, 1fr) auto; cursor: pointer; }
+    .up.done { border-left: 2px solid var(--moss); }
+    .up .check, .up .paths, .up .note { font-size: 10px; overflow-wrap: anywhere; }
+    .up .host { font-size: 10px; }
+    pre, .summary { border-radius: 6px; font-size: 11px; }
+    #check { min-height: 160px; margin-top: 0; max-height: 360px; }
+    #preview-panel { margin-bottom: 1.3rem; border: 1px solid var(--rust); border-radius: 6px; padding: 1rem; }
+    #preview-panel[hidden] { display: none; }
+    #preview-panel .row { justify-content: space-between; }
+    #preview { margin: 0; max-height: 320px; }
+    #error:empty { display: none; }
+    #error { border-left: 2px solid var(--rust); padding: .75rem 1rem; background: #292119; overflow-wrap: anywhere; }
+    .empty-state { color: var(--stone); padding: 1.2rem; border: 1px dashed var(--line); border-radius: 5px; font-size: 11px; }
+    .clock { font-size: 10px; }
+    footer { border-top: 1px solid var(--line); padding-top: 1rem; font-size: 10px; }
+    @media (max-width: 1100px) { .work-grid { grid-template-columns: 1fr; } section { padding: 1.5rem; } .header-right .tag { max-width: 340px; text-align: right; } }
+    @media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { border-right: 0; border-bottom: 1px solid var(--line); } #repos { max-height: 220px; } header { padding: 1rem; gap: .6rem; flex-wrap: wrap; } .header-right .tag { display: none; } section { padding: 1.3rem 1rem; } .score { padding: 1rem; } .brains { grid-template-columns: 1fr; } .score-label { font-size: 9px; } .count { font-size: 44px; } .mission h2 { font-size: 32px; } }
   </style>
 </head>
 <body>
   <header>
     <h1>NIGHTSHIFT</h1>
     <div class="header-right">
+      <span id="connection" class="connection offline" role="status">CONNECTING</span>
       <div class="tag">TWO BRAINS · ONE BRANCH · <span id="turns-badge"></span> <a id="loopscope" href="http://127.0.0.1:7788" target="_blank" rel="noreferrer">LOOPSCOPE</a> · <a href="/cmm" target="_blank" rel="noreferrer">CMM</a></div>
       <div id="aineko" class="aineko" title="Aineko · idle" role="status" aria-live="polite">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -193,7 +268,8 @@
   </header>
   <main>
     <aside>
-      <h2>REPOS</h2>
+      <div class="aside-heading"><h2>YOUR PORTFOLIO</h2><span id="repo-count"></span></div>
+      <input id="repo-search" type="search" placeholder="Find a repository…" aria-label="Find a repository" autocomplete="off"/>
       <div class="row">
         <label class="chk"><input type="checkbox" id="deprecated"/> DEPRECATED</label>
         <label class="chk"><input type="checkbox" id="mock"/> MOCK</label>
@@ -206,17 +282,28 @@
       <ul id="bag"><li class="empty">no bag</li></ul>
     </aside>
     <section>
-      <h2>RUN</h2>
+      <p class="eyebrow">THE OVERNIGHT WORKBENCH</p>
+      <div class="mission"><div><h2 id="mission-title">Good work. While you sleep.</h2><p id="mission-detail">Choose a project, freeze a checkable brief, and wake up to a branch worth reviewing.</p></div><span id="mode">LOCAL</span></div>
+      <div class="controls">
       <p id="selected" class="empty">Select a git project, press Run, go to sleep.</p>
       <div class="row">
         <button type="button" class="primary" id="run" disabled>RUN</button>
         <button type="button" id="bag-select">BAG</button>
         <button type="button" class="primary" id="run-bag">RUN BAG</button>
-        <button type="button" id="dry">DRY RUN</button>
+        <button type="button" id="dry" disabled>DRY RUN</button>
         <button type="button" id="halt" class="danger" disabled>HALT AFTER TURN</button>
         <span id="phase" class="empty">idle</span>
       </div>
-      <div class="count" id="remaining">—</div>
+      </div>
+      <p id="error" class="err" role="alert"></p>
+      <div id="preview-panel" hidden><div class="row"><h2 id="preview-title">PREVIEW</h2><button id="close-preview" type="button" aria-label="Close preview">CLOSE</button></div><pre id="preview"></pre></div>
+      <div class="scoreboard">
+        <div class="score"><span class="score-label">JOBS REMAINING</span><div class="count" id="remaining">—</div></div>
+        <div class="score"><span class="score-label">VERIFIED</span><span class="score-number" id="done-count">—</span></div>
+        <div class="score"><span class="score-label">VOIDED</span><span class="score-number" id="void-count">—</span></div>
+      </div>
+      <div class="progress-label"><span id="progress-label">Waiting for a frozen brief</span><span id="progress-value">—</span></div>
+      <progress id="job-progress" max="100" value="0" aria-label="Resolved jobs"></progress>
       <div class="clock"><span id="elapsed">—</span> · <span id="tohalt">—</span> · <span id="turnbudget">—</span></div>
       <div class="bars"><i id="bar-night"></i><i id="bar-turns"></i></div>
       <div class="brains">
@@ -224,15 +311,17 @@
         <div class="lamp" id="lamp-writer"><span class="dot"></span> WRITER · SPARK DS4 <span class="since"></span></div>
         <div class="lamp" id="lamp-host"><span class="dot"></span> HOST CHECK <span class="since"></span></div>
       </div>
-      <h2>BRIEF <span id="brief-n" class="tag"></span></h2>
+      <div class="work-grid"><div>
+      <h2>FROZEN BRIEF <span id="brief-n" class="tag"></span></h2>
       <ol id="brief"></ol>
-      <h2>LAST CHECK</h2>
+      </div><div>
+      <h2>HOST EVIDENCE <span id="check-focus"></span></h2>
       <pre id="check">(none yet)</pre>
+      </div></div>
       <h2>TURNS <span id="turns-n" class="tag"></span></h2>
       <ol id="turns" reversed></ol>
       <h2>MORNING</h2>
       <div class="summary" id="summary">summary.md appears here after halt.</div>
-      <p id="error" class="err"></p>
       <footer>
         Personal capacity. GitHub is the remote. Review in VS Code.
         Never commits to main. Never force-push.
@@ -276,6 +365,7 @@
       for (const id of ["lamp-critic", "lamp-writer", "lamp-host"]) {
         $(id).classList.toggle("on", false);
         $(id).classList.toggle("late", false);
+        $(id).querySelector(".since").textContent = "";
       }
       const map = {critic: "lamp-critic", writer: "lamp-writer", host: "lamp-host"};
       const timeouts = {critic: cfg.critic_timeout, writer: cfg.writer_timeout, host: cfg.check_timeout};
@@ -374,9 +464,12 @@
         add("check", "$ " + (u.check_command || ""));
         add("paths", (u.paths || []).join(", "));
         if (u.note) add("note", u.note);
-        li.onclick = () => {
-          const c = (s.checks || {})[String(u.id)] || {};
-          $("check").textContent = "$ " + (u.check_command || "") + "\n" + (c.tail || "");
+        li.tabIndex = 0;
+        li.setAttribute("role", "button");
+        li.setAttribute("aria-label", "Inspect evidence for job " + u.id + ": " + u.title);
+        li.onclick = () => { checkFocus = u.id; renderEvidence(lastStatus); };
+        li.onkeydown = event => {
+          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); li.click(); }
         };
       }
       for (const li of [...ol.children]) {
@@ -397,13 +490,14 @@
 
     function renderTurns(s) {
       const ol = $("turns");
-      const rows = s.turns || [];
+      const rows = (s.turns || []).filter(row => row.kind !== "freeze");
       $("turns-n").textContent = rows.length ? String(rows.length) : "";
       const notesN = rows.reduce((n, r) => n + ((r.writer_refused || []).length + (r.critic_notes || []).length), 0);
       $("turns-badge").textContent = rows.length ? ("TURNS · " + rows.length + " · " + notesN + " notes · ") : "";
       const open = new Set([...ol.querySelectorAll("details[open]")].map(d => d.closest("li")?.dataset.turn));
-      if (ol.dataset.len === String(rows.length) && ol.children.length === rows.length) return;
-      ol.dataset.len = String(rows.length);
+      const signature = JSON.stringify([s.repo, s.branch, s.started_at, rows]);
+      if (ol.dataset.signature === signature) return;
+      ol.dataset.signature = signature;
       ol.replaceChildren();
       for (const row of [...rows].reverse()) {
         if (row.kind === "freeze") continue;
@@ -445,192 +539,297 @@
       }
     }
 
-    async function loadRepos() {
-      const dep = $("deprecated").checked ? "1" : "0";
-      const r = await fetch("/api/repos?include_deprecated=" + dep);
-      const data = await r.json();
+    let repos = [];
+    let pending = false;
+    let connected = false;
+    let configReady = false;
+    let actionError = "";
+    let checkFocus = null;
+    let runKey = "";
+
+    async function api(path, payload, timeout = 15000) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeout);
+      try {
+        const options = {signal: controller.signal, cache: "no-store"};
+        if (payload !== undefined) Object.assign(options, {
+          method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)
+        });
+        const response = await fetch(path, options);
+        const data = await response.json();
+        if (!response.ok || data.ok === false) throw new Error(data.error || "Request failed (" + response.status + ")");
+        return data;
+      } catch (error) {
+        if (error.name === "AbortError") throw new Error("The request timed out. Check the connection and current shift before retrying.");
+        throw error;
+      } finally { clearTimeout(timer); }
+    }
+
+    function renderError() {
+      const message = actionError || lastStatus.error || "";
+      $("error").textContent = message;
+      $("error").classList.toggle("dirty", /uncommitted|dirty/i.test(message));
+    }
+
+    function syncControls() {
+      const live = lastStatus.state === "running" || bagLive(lastStatus);
+      const unavailable = pending || !connected || !configReady;
+      for (const id of ["run", "dry"]) $(id).disabled = unavailable || !selected || live;
+      for (const id of ["run-bag", "bag-select"]) $(id).disabled = unavailable || live;
+      const halting = lastStatus.halt_requested || (lastStatus.bag || {}).halt_bag;
+      $("halt").disabled = unavailable || !live || !!halting;
+      $("halt").textContent = halting && live ? "HALT REQUESTED…" : "HALT AFTER TURN";
+      for (const id of ["mock", "allow-dirty", "brief-size"]) $(id).disabled = unavailable || live;
+      $("selected").textContent = selected || "Select a git project, press Run, go to sleep.";
+      $("selected").classList.toggle("empty", !selected);
+    }
+
+    function renderRepos() {
+      const query = $("repo-search").value.trim().toLowerCase();
+      const shown = repos.filter(r => (r.name + " " + r.path + " " + r.branch).toLowerCase().includes(query));
+      $("repo-count").textContent = shown.length + " / " + repos.length;
       const ul = $("repos");
       ul.replaceChildren();
-      if (!data.repos.length) {
+      if (!shown.length) {
         const li = document.createElement("li");
         li.className = "empty";
-        li.textContent = "No git repos under the configured roots. Default is ~/REPOS.";
+        li.textContent = repos.length ? "No matching repositories." : "No git repos under the configured roots.";
         ul.appendChild(li);
-        return;
       }
-      for (const repo of data.repos) {
+      for (const repo of shown) {
         const li = document.createElement("li");
         li.dataset.path = repo.path;
+        li.classList.toggle("sel", selected === repo.path);
+        const button = document.createElement("button");
+        button.type = "button";
+        button.setAttribute("aria-pressed", String(selected === repo.path));
+        button.title = repo.path;
         const name = document.createElement("span");
         name.className = "name";
         name.textContent = repo.name;
         const meta = document.createElement("span");
         meta.className = "meta";
-        meta.textContent = repo.path + " · " + repo.branch + (repo.dirty ? " · dirty" : "");
-        li.appendChild(name);
-        li.appendChild(meta);
-        li.addEventListener("click", () => {
+        meta.textContent = repo.branch + (repo.dirty ? " · uncommitted changes" : " · clean");
+        button.append(name, meta);
+        button.addEventListener("click", () => {
           selected = repo.path;
-          for (const n of ul.children) n.classList.remove("sel");
-          li.classList.add("sel");
-          $("selected").textContent = repo.path;
-          $("run").disabled = false;
+          for (const item of ul.children) {
+            item.classList.toggle("sel", item.dataset.path === selected);
+            item.querySelector("button")?.setAttribute("aria-pressed", String(item.dataset.path === selected));
+          }
+          syncControls();
         });
+        li.appendChild(button);
         ul.appendChild(li);
       }
+      syncControls();
+    }
+
+    async function loadRepos() {
+      const data = await api("/api/repos?include_deprecated=" + ($("deprecated").checked ? "1" : "0"));
+      repos = data.repos || [];
+      if (selected && !repos.some(r => r.path === selected)) selected = null;
+      renderRepos();
+    }
+
+    function renderOverview(s) {
+      const ups = (s.brief || {}).upgrades || [];
+      const done = ups.filter(u => u.done && !u.void).length;
+      const voided = ups.filter(u => u.void).length;
+      const resolved = done + voided;
+      $("done-count").textContent = ups.length ? done : "—";
+      $("void-count").textContent = ups.length ? voided : "—";
+      $("remaining").textContent = s.remaining_count == null ? "—" : s.remaining_count;
+      $("remaining").classList.toggle("hot", s.remaining_count > 0 && s.state === "running");
+      $("job-progress").value = ups.length ? resolved / ups.length * 100 : 0;
+      $("progress-label").textContent = ups.length ? resolved + " of " + ups.length + " jobs resolved" : "Waiting for a frozen brief";
+      $("progress-value").textContent = ups.length ? Math.round(resolved / ups.length * 100) + "%" : "—";
+      const bag = s.bag || {};
+      const current = (bag.targets || []).find(t => t.state === "running");
+      const name = (s.repo || "").split(/[\\/]/).filter(Boolean).pop();
+      let title = "Good work. While you sleep.";
+      let detail = "Choose a project, freeze a checkable brief, and wake up to a branch worth reviewing.";
+      if (s.state === "running") {
+        title = "Tonight: " + (name || "getting ready");
+        detail = s.halt_requested
+          ? "Halt requested. Finishing the current turn."
+          : (s.job || "The critic is inspecting the project and freezing a checkable brief.");
+      } else if (bagLive(s)) {
+        title = current ? "Next up: " + current.name : "Your portfolio is in motion.";
+        detail = bag.halt_bag ? "Halt requested. Finishing the current work." : "Moving through tonight’s queue, one repository at a time.";
+      } else if (s.state === "done") {
+        title = "Ready for your review.";
+        detail = (name || "Your project") + " · " + done + " verified · " + voided + " voided. Inspect the evidence and morning summary below.";
+      } else if (s.state === "halted" || s.state === "error") {
+        title = s.state === "error" ? "This shift needs attention." : "The night has paused.";
+        detail = (name ? name + " · " : "") + (s.halt_reason || s.error || "Review the completed work and remaining jobs below.");
+      }
+      $("mission-title").textContent = title;
+      $("mission-detail").textContent = detail;
+      $("mode").textContent = (s.repo ? s.mock : cfg.mock) ? "MOCK MODE" : "LIVE · LOCAL";
+      let phase = (s.state || "idle") + (s.branch ? " · " + s.branch : "");
+      if (bagLive(s)) phase = "bag running · " + phase;
+      if ((s.state === "running" && s.halt_requested) || (bagLive(s) && bag.halt_bag)) {
+        phase = "halt requested · " + phase;
+      }
+      $("phase").textContent = phase;
+    }
+
+    function renderEvidence(s) {
+      const focused = checkFocus != null ? (s.checks || {})[String(checkFocus)] : null;
+      const upgrade = ((s.brief || {}).upgrades || []).find(u => Number(u.id) === Number(checkFocus));
+      const c = focused || s.last_check || {};
+      $("check-focus").textContent = focused ? "· JOB " + checkFocus : "· LATEST";
+      $("check").textContent = c.command || focused ?
+        "$ " + (c.command || (upgrade || {}).check_command || "") + "\nexit " + c.exit_code + "\n" + (c.output || c.tail || "") :
+        "Host output will appear here after the first check.\nSelect a job to inspect its evidence.";
     }
 
     async function loadStatus() {
-      const r = await fetch("/api/status");
-      const s = await r.json();
-      lastStatus = s;
-      let phase = (s.state || "idle") + (s.branch ? " · " + s.branch : "");
-      if (s.state === "running" && s.halt_requested) phase = "running · halt requested";
-      $("phase").textContent = phase;
-      if (s.remaining_count === null || s.remaining_count === undefined || s.remaining_count === "") {
-        $("remaining").textContent = "—";
-        $("remaining").classList.remove("hot");
-      } else {
-        $("remaining").textContent = String(s.remaining_count);
-        $("remaining").classList.toggle("hot", s.remaining_count > 0 && s.state === "running");
+      try {
+        const s = await api("/api/status");
+        const key = [s.repo, s.branch, s.started_at].join("|");
+        if (key !== runKey) { checkFocus = null; runKey = key; }
+        lastStatus = s;
+        connected = true;
+        $("connection").textContent = "CONNECTED";
+        $("connection").classList.remove("offline");
+        $("connection").title = "Last synced " + new Date().toLocaleTimeString();
+        setAineko((s.state === "running" || bagLive(s)) ? "running" : (s.state || "idle"));
+        setLamp(s.state === "running" ? s.brain : "", s.updated_at);
+        if (s.loopscope_url) $("loopscope").href = s.loopscope_url;
+        $("summary").textContent = s.summary || "Your morning summary will appear here when the shift finishes.";
+        renderOverview(s);
+        renderBrief(s);
+        renderEvidence(s);
+        renderTurns(s);
+        renderBag(s);
+        tickClock(s);
+      } catch (error) {
+        connected = false;
+        $("connection").textContent = "RECONNECTING";
+        $("connection").classList.add("offline");
+        $("connection").title = "Displayed progress may be stale. " + error.message;
       }
-      setLamp(s.brain || "", s.updated_at);
-      setAineko((s.state === "running" || bagLive(s)) ? "running" : (s.state || "idle"));
-      if (s.last_check && s.last_check.command) {
-        $("check").textContent = "$ " + s.last_check.command + "\nexit " + s.last_check.exit_code +
-          "\n" + (s.last_check.output || "");
-      }
-      if (s.summary) $("summary").textContent = s.summary;
-      const err = $("error");
-      err.textContent = s.error || "";
-      err.classList.toggle("dirty", /uncommitted|dirty/i.test(s.error || ""));
-      if (s.loopscope_url) $("loopscope").href = s.loopscope_url;
-      const live = s.state === "running" || bagLive(s);
-      $("run").disabled = !selected || live;
-      if ($("run-bag")) $("run-bag").disabled = live;
-      if ($("bag-select")) $("bag-select").disabled = live;
-      $("halt").disabled = !live || !!s.halt_requested;
-      renderBag(s);
-      if (s.state === "running" && s.halt_requested) {
-        $("halt").textContent = "HALTING AFTER TURN " + (s.turn || "") + "…";
-      } else {
-        $("halt").textContent = "HALT AFTER TURN";
-      }
-      renderBrief(s);
-      renderTurns(s);
-      tickClock(s);
+      syncControls();
+      renderError();
     }
 
     function renderBag(s) {
       const ul = $("bag");
-      if (!ul) return;
       const bag = s.bag || {};
       const targets = bag.targets || [];
       ul.replaceChildren();
       if (!targets.length) {
         const li = document.createElement("li");
         li.className = "empty";
-        li.textContent = bag.state ? ("bag " + bag.state) : "no bag";
+        li.textContent = "Select BAG to plan tonight’s queue.";
         ul.appendChild(li);
         return;
       }
-      for (const t of targets) {
+      for (const [index, t] of targets.entries()) {
         const li = document.createElement("li");
+        li.className = ["running", "done", "error", "skipped"].includes(t.state) ? t.state : "queued";
         const name = document.createElement("span");
         name.className = "name";
-        name.textContent = (t.name || t.repo_id || "?") + (t.role === "meta" ? " · RSI" : "");
+        name.textContent = String(index + 1).padStart(2, "0") + "  " + (t.name || "?") + (t.role === "meta" ? " · RSI" : "");
         const meta = document.createElement("span");
         meta.className = "meta";
-        const bits = [t.state || "", t.halt_reason || t.error || "", t.remaining_count != null ? ("remaining " + t.remaining_count) : ""];
-        meta.textContent = bits.filter(Boolean).join(" · ");
-        li.appendChild(name);
-        li.appendChild(meta);
+        meta.textContent = [t.state || "queued", t.halt_reason || t.error || "", t.remaining_count != null ? t.remaining_count + " remaining" : ""].filter(Boolean).join(" · ");
+        li.append(name, meta);
         ul.appendChild(li);
       }
     }
 
-    async function postBag(dry) {
-      $("summary").textContent = dry ? "selecting bag…" : "bag started…";
-      const r = await fetch("/api/bag", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-          dry: dry,
-          mock: $("mock").checked,
-          brief_size: Number($("brief-size").value),
-          allow_dirty: $("allow-dirty").checked
-        })
-      });
-      const data = await r.json();
-      if (!r.ok) $("error").textContent = data.error || r.statusText;
-      else if (dry && data.bag) {
-        const rows = (data.bag.targets || []).map(t =>
-          (t.role || "") + "  L" + (t.cmm_level == null ? "?" : t.cmm_level) + "  " + (t.name || "") + "  " + (t.path || "")
-        );
-        $("summary").textContent = rows.join("\n") || "no targets";
+    function showPreview(title, text) {
+      $("preview-title").textContent = title;
+      $("preview").textContent = text;
+      $("preview-panel").hidden = false;
+    }
+
+    async function perform(work) {
+      if (pending) return;
+      pending = true;
+      actionError = "";
+      syncControls();
+      renderError();
+      try { await work(); }
+      catch (error) { actionError = error.message || "Unable to complete the request."; }
+      finally {
+        await loadStatus();
+        pending = false;
+        syncControls();
+        renderError();
       }
     }
 
-    $("run").addEventListener("click", async () => {
-      if (!selected) return;
-      $("run").disabled = true;
-      $("summary").textContent = "shift started…";
-      const r = await fetch("/api/run", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-          path: selected,
-          mock: $("mock").checked,
-          brief_size: Number($("brief-size").value),
-          allow_dirty: $("allow-dirty").checked
-        })
-      });
-      const data = await r.json();
-      if (!r.ok) $("error").textContent = data.error || r.statusText;
+    const runOptions = () => ({
+      mock: $("mock").checked, brief_size: Number($("brief-size").value), allow_dirty: $("allow-dirty").checked
     });
-    $("dry").addEventListener("click", async () => {
-      if (!selected) return;
-      const r = await fetch("/api/run", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-          path: selected,
-          mock: $("mock").checked,
-          brief_size: Number($("brief-size").value),
-          dry_run: true,
-          allow_dirty: $("allow-dirty").checked
-        })
+
+    async function postBag(dry) {
+      await perform(async () => {
+        const data = await api("/api/bag", {...runOptions(), dry}, 60000);
+        if (dry) {
+          const rows = (data.bag.targets || []).map((t, i) =>
+            (i + 1) + ". " + t.name + (t.role === "meta" ? " · RSI" : "") + " · L" + (t.cmm_level ?? 0) + "\n   " + t.path
+          );
+          showPreview("TONIGHT’S QUEUE", rows.join("\n\n") || "No eligible targets. Scan your repositories and check their working trees.");
+        } else $("preview-panel").hidden = true;
       });
-      const data = await r.json();
-      if (!r.ok) { $("error").textContent = data.error || r.statusText; return; }
-      const ups = ((data.brief || {}).upgrades) || [];
-      $("summary").textContent = ups.map(u =>
-        (u.void ? "- [void: " + u.void_reason + "] " : "- [ ] ") + "#" + u.id + " " + u.title +
+    }
+
+    $("run").addEventListener("click", () => perform(async () => {
+      if (!selected) return;
+      await api("/api/run", {...runOptions(), path: selected});
+      $("preview-panel").hidden = true;
+    }));
+    $("dry").addEventListener("click", () => perform(async () => {
+      if (!selected) return;
+      const data = await api("/api/run", {...runOptions(), path: selected, dry_run: true}, (cfg.critic_timeout + 30) * 1000);
+      const ups = (data.brief || {}).upgrades || [];
+      showPreview("FROZEN BRIEF PREVIEW · NO FILES CHANGED", ups.map(u =>
+        (u.void ? "[void: " + u.void_reason + "] " : "[ ] ") + "#" + u.id + " " + u.title +
         "\n  check: " + u.check_command + "\n  paths: " + (u.paths || []).join(", ")
-      ).join("\n");
-    });
-    $("halt").addEventListener("click", async () => {
-      if (!confirm("Halt after the current turn? Summary and ledger still land.")) return;
-      const r = await fetch("/api/halt", {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"});
-      const data = await r.json();
-      if (!r.ok) $("error").textContent = data.error || r.statusText;
-    });
+      ).join("\n\n") || "No upgrades proposed.");
+    }));
+    $("halt").addEventListener("click", () => perform(() => api("/api/halt", {})));
     $("bag-select").addEventListener("click", () => postBag(true));
     $("run-bag").addEventListener("click", () => postBag(false));
-    $("refresh").addEventListener("click", loadRepos);
-    $("deprecated").addEventListener("change", loadRepos);
+    for (const [id, event] of [["refresh", "click"], ["deprecated", "change"]]) {
+      $(id).addEventListener(event, () => loadRepos().catch(error => { actionError = error.message; renderError(); }));
+    }
+    $("repo-search").addEventListener("input", renderRepos);
+    $("close-preview").addEventListener("click", () => { $("preview-panel").hidden = true; });
 
-    fetch("/api/config").then(r => r.json()).then(c => {
+    async function loadConfig() {
+      const c = await api("/api/config");
       cfg = Object.assign(cfg, c);
-      if (c.mock) $("mock").checked = true;
+      $("mock").checked = !!c.mock;
+      $("allow-dirty").checked = !!c.allow_dirty;
       if (c.brief_size) $("brief-size").value = String(c.brief_size);
       if (c.loopscope_url) $("loopscope").href = c.loopscope_url;
-      if (c.include_deprecated) $("deprecated").checked = true;
-    }).catch(() => {});
-    loadRepos();
-    loadStatus();
-    setInterval(loadStatus, 800);
-    setInterval(() => { if (lastStatus) tickClock(lastStatus); }, 1000);
+      $("deprecated").checked = !!c.include_deprecated;
+      configReady = true;
+      await loadRepos();
+    }
+
+    async function poll() {
+      if (!configReady) {
+        try { await loadConfig(); }
+        catch (error) { $("connection").title = error.message; }
+      }
+      await loadStatus();
+      setTimeout(poll, connected ? 1000 : 3000);
+    }
+    syncControls();
+    poll();
+    setInterval(() => {
+      if (connected) {
+        tickClock(lastStatus);
+        setLamp(lastStatus.state === "running" ? lastStatus.brain : "", lastStatus.updated_at);
+      }
+    }, 1000);
   </script>
 </body>
 </html>

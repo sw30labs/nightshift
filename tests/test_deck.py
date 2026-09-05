@@ -87,6 +87,58 @@ def test_deck_preserves_running_status_for_live_external_owner(
     }
 
 
+def test_deck_keeps_halt_flag_after_request_file_is_consumed(
+    ns_home, monkeypatch
+):
+    settings = Settings(mock=True, observe=False, home=ns_home, deck_port=0)
+    external_pid = os.getpid() + 10_000
+    monkeypatch.setattr("nightshift.deck.os.kill", lambda pid, signal: None)
+    StatusBoard(settings.state_dir()).update(
+        state="running",
+        runner_pid=external_pid,
+        repo="/tmp/live-repo",
+        halt_requested=True,
+    )
+
+    snap = DeckState(settings).snapshot()
+
+    assert snap["state"] == "running"
+    assert snap["halt_requested"] is True
+    assert not (ns_home / "halt.request").exists()
+
+
+def test_deck_promotes_halt_file_for_a_live_shift(ns_home, monkeypatch):
+    settings = Settings(mock=True, observe=False, home=ns_home, deck_port=0)
+    external_pid = os.getpid() + 10_000
+    monkeypatch.setattr("nightshift.deck.os.kill", lambda pid, signal: None)
+    StatusBoard(settings.state_dir()).update(
+        state="running",
+        runner_pid=external_pid,
+        repo="/tmp/live-repo",
+    )
+    (ns_home / "halt.request").write_text(json.dumps({"pid": external_pid}))
+
+    snap = DeckState(settings).snapshot()
+
+    assert snap["state"] == "running"
+    assert snap["halt_requested"] is True
+
+
+def test_deck_recovers_running_status_for_unsignable_pid(ns_home):
+    settings = Settings(mock=True, observe=False, home=ns_home, deck_port=0)
+    StatusBoard(settings.state_dir()).update(
+        state="running",
+        runner_pid=10**100,
+        repo="/tmp/overflow-repo",
+    )
+
+    snap = DeckState(settings).snapshot()
+
+    assert snap["state"] == "halted"
+    assert snap["halt_reason"] == "interrupted"
+    assert snap["runner_pid"] is None
+
+
 def test_deck_recovers_running_status_for_dead_external_owner(
     ns_home, monkeypatch
 ):

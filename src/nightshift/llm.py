@@ -20,6 +20,43 @@ from .safety import assert_inside_repo, assert_job_path, is_meta_path
 MAX_FULL_FILE_CHARS = 8_000
 WRITER_SNAPSHOT_CHARS = int(os.environ.get("NIGHTSHIFT_WRITER_SNAPSHOT_CHARS", "120000"))
 
+# Highest effort both live brains accept. DS4 Flash maps low/medium→high and
+# xhigh→high; only "max" is above the API default. GLM-5.3-Flash accepts
+# low/high/max (template default is already max; we still send it).
+REASONING_EFFORT = "max"
+# CoT and the JSON answer share one completion budget. 8192 used to hit
+# finish_reason=length with empty content once thinking is on.
+DEFAULT_MAX_TOKENS = 32_768
+WRITER_MAX_TOKENS = 32_768
+WRITER_MAX_TOKENS_ON_TRUNCATE = 65_536
+OUTPUT_RESERVE_TOKENS = 8_192
+MIN_THINKING_BUDGET = 4_096
+
+
+def thinking_request_fields(max_tokens: int) -> dict[str, Any]:
+    """Per-request thinking controls for spark-serve vLLM and oMLX.
+
+    Top-level ``reasoning_effort`` is first-class on both. ``thinking`` as a
+    boolean matches spark-serve; ``chat_template_kwargs`` is what vLLM's
+    DeepSeek-V4 tokenizer actually reads. ``thinking_budget`` is oMLX;
+    ``thinking_token_budget`` is vLLM. Both cap CoT so the reserved tail of
+    ``max_tokens`` stays available for the JSON answer.
+    """
+    fields: dict[str, Any] = {
+        "reasoning_effort": REASONING_EFFORT,
+        "thinking": True,
+        "chat_template_kwargs": {
+            "thinking": True,
+            "enable_thinking": True,
+            "reasoning_effort": REASONING_EFFORT,
+        },
+    }
+    budget = int(max_tokens) - OUTPUT_RESERVE_TOKENS
+    if budget >= MIN_THINKING_BUDGET:
+        fields["thinking_budget"] = budget
+        fields["thinking_token_budget"] = budget
+    return fields
+
 
 class ChatClient(Protocol):
     def chat(
@@ -27,7 +64,7 @@ class ChatClient(Protocol):
         messages: list[dict[str, str]],
         *,
         temperature: float = 0.2,
-        max_tokens: int = 8192,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
     ) -> str: ...
 
 
@@ -140,7 +177,7 @@ class OpenAICompatClient:
         messages: list[dict[str, str]],
         *,
         temperature: float = 0.2,
-        max_tokens: int = 8192,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
     ) -> str:
         url = f"{self.base_url}/chat/completions"
         payload = {
@@ -148,6 +185,7 @@ class OpenAICompatClient:
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
+            **thinking_request_fields(max_tokens),
         }
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
@@ -355,7 +393,7 @@ class MockChatClient:
         messages: list[dict[str, str]],
         *,
         temperature: float = 0.2,
-        max_tokens: int = 8192,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
     ) -> str:
         system = " ".join(m["content"] for m in messages if m["role"] == "system").lower()
         user = messages[-1]["content"] if messages else ""
@@ -558,7 +596,9 @@ class Writer:
                     {"role": "system", "content": WRITER_SYSTEM},
                     {"role": "user", "content": user},
                 ]
-                max_tokens = 16384 if truncated else 8192
+                max_tokens = (
+                    WRITER_MAX_TOKENS_ON_TRUNCATE if truncated else WRITER_MAX_TOKENS
+                )
                 if attempt and truncated:
                     messages.append(
                         {

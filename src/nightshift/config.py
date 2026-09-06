@@ -71,10 +71,10 @@ class Settings:
     halt_deadline: datetime | None = None
     stall_after: int = 8
     writer_timeout: int = field(
-        default_factory=lambda: int(os.environ.get("NIGHTSHIFT_WRITER_TIMEOUT", "600"))
+        default_factory=lambda: int(os.environ.get("NIGHTSHIFT_WRITER_TIMEOUT", "1200"))
     )
     critic_timeout: int = field(
-        default_factory=lambda: int(os.environ.get("NIGHTSHIFT_CRITIC_TIMEOUT", "180"))
+        default_factory=lambda: int(os.environ.get("NIGHTSHIFT_CRITIC_TIMEOUT", "480"))
     )
     brief_size: int = field(
         default_factory=lambda: int(os.environ.get("NIGHTSHIFT_BRIEF_SIZE", "2"))

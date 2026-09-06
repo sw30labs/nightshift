@@ -9,6 +9,8 @@ Overnight **areas of improvement** across a **portfolio**, not one clone. Pick a
 
 What shipped:
 
+- **Owner portfolio priorities (opt in)** — refresh the Porter-backed portfolio decisions before each bag, select one allocated target with two jobs, record the source digest, and hand off to Morning Prayers. No automatic meta slot in this mode. [Setup, HOTL commands and review cadence](docs/portfolio-priorities.md).
+
 - **Portfolio bag** — `nightshift bag` / deck **BAG** + **RUN BAG**. Sequential nights (default 2, max 3) against one writer and one critic. Recency, CMM holes, optional `~/.nightshift/prior.json` liked/skip.
 - **Meta RSI** — every bag includes Nightshift itself unless `--skip-meta`. Orange on the RSI graph is Nightshift writing Nightshift. You still merge.
 - **Shared forum** — `~/.nightshift/forum.json` + `forum.md`. Publish after halt. A `shlex` catch in this repo is visible at freeze on the next target. Not a chat.
@@ -279,4 +281,3 @@ src/nightshift/
 ```
 
 Apache-2.0. Copyright 2026 Nicolas Cravino.
-

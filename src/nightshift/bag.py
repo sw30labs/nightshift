@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -43,6 +43,7 @@ class BagTarget:
     cmm_level: int
     last_commit_unix: int
     skip_reason: str = ""
+    priority: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -53,6 +54,7 @@ class BagPlan:
     size: int
     skip_meta: bool
     meta_last: bool
+    priorities: dict = field(default_factory=dict)
 
 
 def clamp_bag_size(n: int | None, default: int = BAG_SIZE_DEFAULT) -> int:
@@ -366,11 +368,17 @@ def select_bag(
     skip_meta: bool | None = None,
     meta_last: bool = False,
 ) -> BagPlan:
+    from . import priorities
+
     home = settings.state_dir()
     recover_stale_bag(home)
     assert_shift_idle(home, allow_self=False)
 
+    config = priorities.policy(home)
+    snapshot = priorities.refresh(home, config) if config else None
     size_n = clamp_bag_size(size if size is not None else settings.bag_size)
+    if config:
+        size_n = 1  # Initial portfolio contract: one target, two jobs; HOTL before next run.
     skip = settings.skip_meta if skip_meta is None else bool(skip_meta)
     meta_last_b = bool(meta_last or settings.meta_last)
     now = settings.now_fn()
@@ -408,16 +416,27 @@ def select_bag(
         else:
             eligible.append(row)
 
-    eligible.sort(key=lambda t: _score_key(t, now=now, liked=liked), reverse=True)
-    targets: list[BagTarget] = []
-    if meta_target is not None and not meta_last_b:
-        targets.append(meta_target)
-        meta_target = None
-    slots = size_n - len(targets) - (1 if meta_target is not None else 0)
-    targets.extend(eligible[: max(0, slots)])
-    if meta_target is not None:
-        targets.append(meta_target)
-    targets = targets[:size_n]
+    priority_info = {}
+    if snapshot:
+        candidates = eligible + ([meta_target] if meta_target is not None else [])
+        targets, excluded, diagnostics = priorities.choose(candidates, snapshot, config, home, size=size_n)
+        skipped.extend(excluded)
+        priority_info = {k: snapshot[k] for k in ("source", "page", "sha256", "fetched_at")}
+        priority_info["diagnostics"] = diagnostics
+        priority_info["assessment_date"] = snapshot["assessment"]["date"]
+        # Meta competes under the same allocation; it never gets an automatic slot.
+        skip = not any(t.role == "meta" for t in targets)
+    else:
+        eligible.sort(key=lambda t: _score_key(t, now=now, liked=liked), reverse=True)
+        targets: list[BagTarget] = []
+        if meta_target is not None and not meta_last_b:
+            targets.append(meta_target)
+            meta_target = None
+        slots = size_n - len(targets) - (1 if meta_target is not None else 0)
+        targets.extend(eligible[: max(0, slots)])
+        if meta_target is not None:
+            targets.append(meta_target)
+        targets = targets[:size_n]
 
     plan = BagPlan(
         bag_id=_new_bag_id(now),
@@ -426,6 +445,7 @@ def select_bag(
         size=size_n,
         skip_meta=skip,
         meta_last=meta_last_b,
+        priorities=priority_info,
     )
     def _save_plan() -> None:
         # Selection may take seconds; another process can start meanwhile.
@@ -439,6 +459,7 @@ def select_bag(
 def target_to_dict(target: BagTarget, *, state: str = "queued") -> dict[str, Any]:
     st = "skipped" if target.skip_reason else state
     return {
+        "priority": target.priority,
         "repo_id": target.repo_id,
         "name": target.name,
         "path": str(target.path),
@@ -458,6 +479,7 @@ def plan_to_dict(plan: BagPlan) -> dict[str, Any]:
     return {
         "schema": BAG_SCHEMA,
         "bag_id": plan.bag_id,
+        "priorities": plan.priorities,
         "size": plan.size,
         "skip_meta": plan.skip_meta,
         "meta_last": plan.meta_last,
@@ -485,6 +507,7 @@ def _bag_document(
         "started_at": _iso(now),
         "halt_at": settings.halt_at,
         "deadline": deadline,
+        "priorities": plan.priorities,
         "size": plan.size,
         "skip_meta": plan.skip_meta,
         "meta_last": plan.meta_last,
@@ -492,6 +515,7 @@ def _bag_document(
         "brief_size": int(settings.brief_size),
         "current_index": -1,
         "targets": [target_to_dict(t) for t in plan.targets],
+        "skipped": [target_to_dict(t) for t in plan.skipped],
     }
 
 
@@ -557,9 +581,16 @@ def run_bag(plan: BagPlan, settings: Settings) -> dict[str, Any]:
     from .runner import run_night
 
     home = settings.state_dir()
+    if plan.priorities:
+        from .priorities import policy
+        current_policy = policy(home)
+        if not current_policy or current_policy.get("paused", False):
+            raise SafetyError("portfolio execution paused; Morning Prayers/owner must explicitly resume")
     now = settings.now_fn()
     deadline = settings.halt_deadline or next_halt(settings.halt_at, now)
     night_settings = replace(settings, halt_deadline=deadline, bag_id=plan.bag_id)
+    if plan.priorities:
+        night_settings = replace(night_settings, brief_size=2)
     min_minutes = int(getattr(settings, "bag_min_minutes", BAG_MIN_MINUTES) or 0)
     interrupted = False
     crashed = False
@@ -648,9 +679,11 @@ def run_bag(plan: BagPlan, settings: Settings) -> dict[str, Any]:
                     with it.phase("night") as phase:
                         phase.log(f"run_night {target.name}")
                         try:
+                            from .priorities import record_attempt
+                            record_attempt(home, plan.bag_id, target)
                             report = run_night(
                                 target.path,
-                                night_settings,
+                                replace(night_settings, portfolio_priority=target.priority),
                                 explicit=(target.role == "meta"),
                                 allow_self_bag=True,
                             )
@@ -754,8 +787,13 @@ def run_bag(plan: BagPlan, settings: Settings) -> dict[str, Any]:
         try:
             mutate_bag(home, _finish)
         finally:
-            if started_observe:
-                stop_active()
+            try:
+                if plan.priorities:
+                    from .priorities import morning
+                    (home / "morning-prayers.md").write_text(morning(home), encoding="utf-8")
+            finally:
+                if started_observe:
+                    stop_active()
     final = load_bag(home)
     return {
         "bag_id": plan.bag_id,

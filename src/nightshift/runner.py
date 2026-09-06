@@ -97,7 +97,8 @@ def freeze_snapshot(ctx: NightContext) -> str:
     """
     home = ctx.settings.home
     loaded = forum.load_forum(home) if forum.forum_enabled() else None
-    return read_snapshot(ctx.repo, home=home, forum=loaded)
+    from .priorities import context
+    return context(ctx.settings.portfolio_priority) + read_snapshot(ctx.repo, home=home, forum=loaded)
 
 
 def _mark_published(exc: BaseException | None) -> None:
@@ -327,6 +328,9 @@ def write_summary(
             tail_sections.append(str(line))
         else:
             header.append(str(line))
+    if ctx.settings.portfolio_priority:
+        from .priorities import context
+        tail_sections.append(context(ctx.settings.portfolio_priority))
     if ctx.interpreter:
         header.append(
             f"**Host python:** {ctx.interpreter}"

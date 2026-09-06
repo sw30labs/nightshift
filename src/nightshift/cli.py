@@ -224,6 +224,10 @@ def cmd_morning_portfolio(args: argparse.Namespace) -> int:
     """
     settings = _settings_from(args)
     home = settings.home
+    from .priorities import morning
+    priority_report = morning(home)
+    if priority_report:
+        print(priority_report)
     if not (home / FORUM_REL).is_file():
         print("no forum yet", file=sys.stderr)
         return 1

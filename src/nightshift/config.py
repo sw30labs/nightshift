@@ -105,6 +105,7 @@ class Settings:
         not in {"0", "false", "no", "off"}
     )
     bag_id: str = ""
+    portfolio_priority: dict = field(default_factory=dict)
 
     def state_dir(self) -> Path:
         self.home.mkdir(parents=True, exist_ok=True)

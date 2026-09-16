@@ -19,7 +19,7 @@ def _split_roots(raw: str | None) -> list[Path]:
 class Settings:
     writer_base_url: str = field(
         default_factory=lambda: os.environ.get(
-            "NIGHTSHIFT_WRITER_BASE_URL", "http://192.168.86.44:8000/v1"
+            "NIGHTSHIFT_WRITER_BASE_URL", "http://sparkone.local:8000/v1"
         )
     )
     writer_model: str = field(

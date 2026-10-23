@@ -177,3 +177,11 @@ def test_env_toggle(monkeypatch):
     assert Settings().docs_gate is True
     monkeypatch.setenv("NIGHTSHIFT_DOCS_GATE", "off")
     assert Settings().docs_gate is False
+
+
+def test_docs_folder_keeps_its_spelling(fixture_repo):
+    # face-research-lab keeps DOCs/adrs; job paths must match what git reports.
+    _write(fixture_repo, "DOCs/adrs/001-x.md", ADR_OK)
+    gate = docs_gate.gate_upgrade(fixture_repo)
+    assert gate is not None
+    assert gate.paths == ["DOCs/adrs/", "DOCs/assumptions.md"]

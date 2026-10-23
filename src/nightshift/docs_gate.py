@@ -56,8 +56,21 @@ class DocsAudit:
         return not self.problems
 
 
+def docs_name(repo: Path) -> str:
+    """The docs folder as git spells it (face-research uses DOCs); "docs" if none."""
+    if (repo / "docs").is_dir():
+        try:
+            names = [p.name for p in repo.iterdir() if p.name.lower() == "docs" and p.is_dir()]
+        except OSError:
+            names = []
+        if "docs" in names or not names:
+            return "docs"
+        return sorted(names)[0]
+    return "docs"
+
+
 def _walk_docs(repo: Path):
-    docs = repo / "docs"
+    docs = repo / docs_name(repo)
     if not docs.is_dir() or docs.is_symlink():
         return
     stack = [(docs, 0)]
@@ -255,8 +268,9 @@ def gate_upgrade(repo: Path, base_sha: str = ""):
     result = audit(repo)
     if result.ok:
         return None
-    adr_dir = result.adr_dir or DEFAULT_ADR_DIR
-    register = result.assumptions or DEFAULT_ASSUMPTIONS
+    docs = docs_name(repo)
+    adr_dir = result.adr_dir or DEFAULT_ADR_DIR.replace("docs", docs, 1)
+    register = result.assumptions or DEFAULT_ASSUMPTIONS.replace("docs", docs, 1)
     return Upgrade(
         id=1,
         title=GATE_TITLE,

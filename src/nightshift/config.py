@@ -104,6 +104,10 @@ class Settings:
         default_factory=lambda: os.environ.get("NIGHTSHIFT_FORUM", "1").strip().lower()
         not in {"0", "false", "no", "off"}
     )
+    docs_gate: bool = field(
+        default_factory=lambda: os.environ.get("NIGHTSHIFT_DOCS_GATE", "1").strip().lower()
+        not in {"0", "false", "no", "off"}
+    )
     bag_id: str = ""
     portfolio_priority: dict = field(default_factory=dict)
 

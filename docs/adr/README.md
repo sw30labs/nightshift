@@ -10,3 +10,4 @@ Load-bearing decisions. If it would be expensive to reverse, it lives here. Impl
 | [0004](0004-forum.md) | Forum is the estate. Ledger is per clone. CMM is a view |
 | [0005](0005-sequential-bag.md) | Sequential bag under one lock |
 | [0006](0006-local-deck.md) | Local stdlib deck, not a cloud UI |
+| [0007](0007-docs-gate.md) | ADRs and assumptions register first. Missing ⇒ job 1 |

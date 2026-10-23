@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import forum
+from . import docs_gate, forum
 from .config import Settings
 from .gitops import (
     checkout_night_branch,
@@ -42,7 +42,7 @@ from .ledger import (
     save_ledger,
 )
 from .llm import Critic, MockChatClient, OpenAICompatClient, Writer, persist_meta, probe_models, resolve_model_id
-from .models import Brief, SafetyError, normalize_rel
+from .models import BRIEF_SIZE_MAX, Brief, SafetyError, normalize_rel
 from .observe import attach, finish, log, metric, ralph_loop, start as observe_start, stop_active
 from .safety import assert_clean_tree, assert_safe_target
 from .status import StatusBoard, clear_halt, halt_requested
@@ -77,6 +77,13 @@ LENS_BLOCK_OE = (
     "This clone has operational evidence (ledger / last host checks).\n"
     "Prefer at least one upgrade that hardens a previously attempted check if that is still checkable.\n"
     "JOBS N is the total bag. Do not emit DE and OE as separate tracks.\n"
+)
+
+
+DOCS_GATE_BLOCK = (
+    "## Docs gate (job 1, fixed)\n"
+    "Nightshift has already frozen upgrade 1: retrospective ADRs and an assumptions register "
+    "under docs/. Do not propose ADR or assumptions work; pick the other upgrades.\n"
 )
 
 
@@ -370,9 +377,19 @@ def freeze_brief(ctx: NightContext, snapshot: str, branch_name: str) -> Brief:
     ctx.lens_hint = freeze_lens_hint(ctx.repo, ctx.settings.home)
     if ctx.lens_hint == "oe":
         snapshot = LENS_BLOCK_OE + "\n" + snapshot
+    # ADR 0007: missing ADRs or assumptions register => deterministic job 1, ahead of the critic's picks.
+    gate = (
+        docs_gate.gate_upgrade(ctx.repo, ctx.base_sha)
+        if getattr(ctx.settings, "docs_gate", False)
+        else None
+    )
+    if gate is not None:
+        snapshot = DOCS_GATE_BLOCK + "\n" + snapshot
+        size = min(size, BRIEF_SIZE_MAX - 1)
+        log(f"docs gate: job 1 ({'; '.join(docs_gate.audit(ctx.repo).problems)})")
     proposed = ctx.critic.propose_brief(snapshot, size=size)
     brief = Brief.freeze(
-        list(proposed) if not isinstance(proposed, tuple) else list(proposed),
+        ([gate] if gate is not None else []) + list(proposed),
         repo=str(ctx.repo),
         branch=branch_name,
         base_ref=ctx.base_ref,
@@ -380,8 +397,8 @@ def freeze_brief(ctx: NightContext, snapshot: str, branch_name: str) -> Brief:
     )
     ledger = load_ledger(ctx.repo, home=ctx.settings.home)
     for upgrade in list(brief.upgrades):
-        if upgrade.void:
-            continue
+        if upgrade.void or docs_gate.is_gate(upgrade):
+            continue  # the gate re-audits every night; a failed try is not void history
         reason = history_void_reason(upgrade, ledger)
         if reason:
             brief.void_upgrade(upgrade.id, reason)

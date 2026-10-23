@@ -16,6 +16,13 @@ def _no_package_checkout(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("nightshift.bag.package_checkout", lambda: None)
 
 
+@pytest.fixture(autouse=True)
+def _docs_gate_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    # ADR 0007: the docs gate is on in real nights. Fixture repos have no docs/,
+    # so legacy tests opt out here; tests/test_docs_gate.py turns it back on.
+    monkeypatch.setenv("NIGHTSHIFT_DOCS_GATE", "0")
+
+
 @pytest.fixture
 def ns_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     home = tmp_path / "ns-home"

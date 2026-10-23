@@ -18,7 +18,7 @@ What shipped:
 
 Electricity is cheaper at night. The local supercomputers are already paid for: two NVIDIA Sparks and a 512 GB Mac Studio. Leave them dark and that capex earns nothing until morning. Same machines, cheaper electrons, a frozen brief, branches you review when you wake up.
 
-Each night: minute 0, the critic walks the tree, tests, README, recent log, the clone ledger, and a ranked excerpt of the **other-repo** forum. It freezes **2–5 checkable upgrades** (deck **JOBS**, default **2**). Not “cleaner architecture.” Each item has a host command that can pass or fail. The writer cannot grow the brief. Last night’s attempted checks get **voided**, not retried.
+Each night: minute 0, the critic walks the tree, tests, README, recent log, the clone ledger, and a ranked excerpt of the **other-repo** forum. It freezes **2–5 checkable upgrades** (deck **JOBS**, default **2**). Not “cleaner architecture.” Each item has a host command that can pass or fail. The writer cannot grow the brief. Last night’s attempted checks get **voided**, not retried. If the clone has no ADRs or no assumptions register under `docs/`, **job 1** is always writing them retrospectively ([ADR 0007](docs/adr/0007-docs-gate.md)).
 
 Then a Ralph loop until remaining is 0, the clock (default 06:00 local), or `max_turns`: critic jobs the next open item, Spark DS4 writes, **host pytest is truth** (only the current job can be marked done, and only if its `paths[]` changed this night), critic reverts gold-plating. The same host failure three times voids that job and unlocks the next. Morning you get:
 
@@ -77,6 +77,7 @@ export NIGHTSHIFT_HALT_AT=06:00          # local clock
 export NIGHTSHIFT_BRIEF_SIZE=2           # 2-5; deck JOBS knob
 export NIGHTSHIFT_BAG_SIZE=2             # 1-3 sequential nights; always meta unless --skip-meta
 export NIGHTSHIFT_FORUM=1                # 0 skips forum publish and the freeze excerpt
+export NIGHTSHIFT_DOCS_GATE=1            # 0 skips the ADR + assumptions job 1 (ADR 0007)
 ```
 
 The cloud CI VM has neither oMLX nor the Sparks. Tests use `--mock` / `NIGHTSHIFT_MOCK=1`. Do not require live GPUs in CI.

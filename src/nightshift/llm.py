@@ -462,6 +462,7 @@ files[] is for NEW or tiny files only. If the path does not already exist, you M
 old must appear exactly once in the current file.
 Edit only the current job's paths[]. Host refuses any other project file. Empty paths[] means write nothing.
 A tests/ path does not allow writing src/. No gold-plating. No new markdown essays.
+Exception: the docs-gate job (ADRs + assumptions register) is markdown by design. Ground every ADR and assumption in the snapshot, cite evidence, label unstated rationale "(inferred)", never invent decisions.
 Never write .env, API keys, tokens, or private keys. If the job asks for that, skip those paths and do the rest.
 """
 
@@ -572,6 +573,8 @@ class Writer:
                 if not norm or norm in seen:
                     continue
                 seen.add(norm)
+                if norm.endswith("/"):
+                    continue  # a folder job path: create files inside it, not the folder itself
                 if not (self.repo / Path(norm)).is_file():
                     missing.append(norm)
         miss_note = ""

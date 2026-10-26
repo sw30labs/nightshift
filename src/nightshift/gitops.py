@@ -195,7 +195,11 @@ def commit_paths(
         ):
             candidates.extend(git(repo, *args, "--", *requested, literal=True).stdout.split("\0"))
     else:
-        candidates = changed_paths(repo)
+        # .nightshift/ meta is committed by its own explicit calls (freeze,
+        # summary, ledger). It is gitignored, and git 2.54 refuses a plain
+        # `git add` of tracked files under an ignored directory, so a turn
+        # commit that swept in .nightshift/brief.json crashed the night.
+        candidates = [p for p in changed_paths(repo) if not is_meta_path(p)]
     to_add = list(dict.fromkeys(p for p in candidates if safe_path(p)))
     if not to_add:
         return None

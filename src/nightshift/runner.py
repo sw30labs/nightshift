@@ -360,7 +360,7 @@ def write_summary(
     commit_paths(
         repo,
         "nightshift: morning summary",
-        [".nightshift/summary.md"],
+        [".nightshift/summary.md", ".nightshift/brief.json"],
         exclude=ctx.preexisting,
     )
     return path

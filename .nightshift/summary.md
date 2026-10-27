@@ -1,30 +1,29 @@
-# Nightshift — 2026-10-24
+# Nightshift — 2026-10-27
 
-**0 of 3 landed · 0 void · 3 open — crashed at turn 1: git add -- .nightshift/brief.json docs/adr/README.md docs/adr/0008-host-checks-fail-closed.md docs/adr/0009-writer-path-lock.md docs/adr/0010-scoped-commits-preserve-staged-work.md docs/adr/0011-cmm-evidence-histogram.md docs/adr/0012-portfolio-priorities-opt-in.md docs/adr/0013-interpreter-and-addopts-normalization.md docs/adr/0014-live-model-id-resolution.md docs/adr/0015-thinking-effort-token-budget.md docs/adr/0016-cooperative-halt.md docs/assumptions.md failed (1): The following paths are ignored by one of your .gitignore files:
-.nightshift
-hint: Use -f if you really want to add them.
-hint: Disable this message with "git config set advice.addIgnoredFile false"**
+**2 of 2 landed · 0 void · 0 open — brief exhausted**
 
 **Repo:** `/Users/spider/REPOS/nightshift`
-**Branch:** `night/2026-10-24`
-**Halt:** error
-**Remaining:** 3
-**Base:** main @ bbe1b8f
-**Main:** main @ bbe1b8f (unchanged)
+**Branch:** `night/2026-10-27`
+**Halt:** remaining_zero
+**Remaining:** 0
+**Base:** main @ 1774ce9
+**Main:** main @ 1774ce9 (unchanged)
 **Host python:** /Users/spider/miniconda3/envs/nightshift/bin/python (conda env: dir name)
 
 ## Frozen brief
 
-- **#1 [open]** ADR + assumptions gate: document the project's decisions and assumptions
-  - check: `python /Users/spider/REPOS/nightshift/src/nightshift/docs_gate.py --check --base bbe1b8faa2d34c3eefb57a97ee10e855f41bddfd`
-  - paths: docs/adr/, docs/assumptions.md
-  - note: Non-negotiable, runs first. Read the COMPLETE project in the snapshot (code, tests, config, README, docs, git log) before writing. Write retrospective ADRs in docs/adr/: one file per real, load-bearing decision visible in code, config, commits or existing docs. Never invent a decision. Any rationale not stated in code, docs or commits is labelled '(inferred)'. Each ADR cites its evidence (file paths, commit hashes). Match the format already used in docs/adr/. Keep docs/adr/README.md as an index table linking every ADR. Write docs/assumptions.md as an assumptions register: a table with ID, Assumption, Evidence, Stated/Inferred, Impact if wrong, Review owner. Gaps at freeze: no assumptions register under docs/ (e.g. docs/assumptions.md)
-- **#2 [open]** Add a host-check regression test for empty and unbalanced-quote check commands
+- **#1 [done]** Add malformed host-check regression tests
   - check: `python -m pytest tests/test_host_check_malformed.py -q`
   - paths: tests/test_host_check_malformed.py, src/nightshift/host.py
-- **#3 [open]** Add a setup script smoke test for bash syntax and --help exit status
+  - note: landed turn 1
+  - turns: 1
+  - commits: bd99f6b
+- **#2 [done]** Add setup_and_run.sh smoke test
   - check: `python -m pytest tests/test_setup_help.py -q`
   - paths: tests/test_setup_help.py, setup_and_run.sh
+  - note: landed turn 2
+  - turns: 1
+  - commits: 8c1c19d
 
 ## Voided / skipped-as-duplicate
 
@@ -33,40 +32,37 @@ hint: Disable this message with "git config set advice.addIgnoredFile false"**
 ## What changed
 
 ```
-7a1e762 nightshift: freeze brief (3 upgrades)
+8c1c19d nightshift: turn 2 — Add tests/test_setup_help.py smoke test that runs setup_and_run.sh --hel
+bd99f6b nightshift: turn 1 — Add malformed host-check regression tests in tests/test_host_check_malfo
+98a08ed nightshift: freeze brief (2 upgrades)
 ```
 
 ```
-(no diff)
+tests/test_host_check_malformed.py | 58 ++++++++++++++++++++++++++++++++++++++
+ tests/test_setup_help.py           | 25 ++++++++++++++++
+ 2 files changed, 83 insertions(+)
 ```
 
-`git diff bbe1b8f...night/2026-10-24 -- . ':!.nightshift'`
+`git diff 1774ce9...night/2026-10-27 -- . ':!.nightshift'`
 
 ## Land it
 
-- merge: `git checkout main && git merge --no-ff night/2026-10-24`
-- drop: `git branch -D night/2026-10-24`
+- merge: `git checkout main && git merge --no-ff night/2026-10-27`
+- cherry-pick keepers: `git cherry-pick bd99f6b 8c1c19d`
+- drop: `git branch -D night/2026-10-27`
 - `.nightshift/ledger.json` rides along on merge
 
 ## What the critic refused
 
-- Upgrade 1 host check passed: docs gate OK with 16 ADRs and assumptions register.
-- All changes are within current job paths: docs/adr/ and docs/assumptions.md.
-- No outside project files were written, so no revert required.
-- Upgrades 2 and 3 remain unpassed because their required test files are absent.
-
-## Remaining
-
-- **#1** ADR + assumptions gate: document the project's decisions and assumptions — `python /Users/spider/REPOS/nightshift/src/nightshift/docs_gate.py --check --base bbe1b8faa2d34c3eefb57a97ee10e855f41bddfd`
-- **#2** Add a host-check regression test for empty and unbalanced-quote check commands — `python -m pytest tests/test_host_check_malformed.py -q`
-- **#3** Add a setup script smoke test for bash syntax and --help exit status — `python -m pytest tests/test_setup_help.py -q`
-
-## Error
-
-git add -- .nightshift/brief.json docs/adr/README.md docs/adr/0008-host-checks-fail-closed.md docs/adr/0009-writer-path-lock.md docs/adr/0010-scoped-commits-preserve-staged-work.md docs/adr/0011-cmm-evidence-histogram.md docs/adr/0012-portfolio-priorities-opt-in.md docs/adr/0013-interpreter-and-addopts-normalization.md docs/adr/0014-live-model-id-resolution.md docs/adr/0015-thinking-effort-token-budget.md docs/adr/0016-cooperative-halt.md docs/assumptions.md failed (1): The following paths are ignored by one of your .gitignore files:
-.nightshift
-hint: Use -f if you really want to add them.
-hint: Disable this message with "git config set advice.addIgnoredFile false"
+- turn 1
+  - Upgrade 1 host check passed: 12 tests passed.
+  - Only tests/test_host_check_malformed.py was written, which is within current_job_paths.
+  - No out-of-scope project file writes detected.
+- turn 2
+  - Host check for upgrade 2 passed: python -m pytest tests/test_setup_help.py -q exited 0 with 1 passed.
+  - Current turn added tests/test_setup_help.py, which is within current_job_paths.
+  - setup_and_run.sh was not modified, which is acceptable because the smoke test passed.
+  - .nightshift/brief.json and .nightshift/turns.jsonl changes are orchestration state from prior accepted work, not current writer project-body edits, so they are not reverted.
 
 ## Owner portfolio priority (scope for this night)
 {

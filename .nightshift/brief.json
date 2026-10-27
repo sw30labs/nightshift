@@ -3,7 +3,7 @@
   "created_at": "2026-10-27T04:05:13.799822+00:00",
   "repo": "/Users/spider/REPOS/nightshift",
   "branch": "night/2026-10-27",
-  "remaining_count": 2,
+  "remaining_count": 0,
   "void_count": 0,
   "upgrades": [
     {
@@ -14,8 +14,8 @@
         "tests/test_host_check_malformed.py",
         "src/nightshift/host.py"
       ],
-      "done": false,
-      "note": "",
+      "done": true,
+      "note": "landed turn 1",
       "void": false,
       "void_reason": "",
       "void_by": 0
@@ -28,8 +28,8 @@
         "tests/test_setup_help.py",
         "setup_and_run.sh"
       ],
-      "done": false,
-      "note": "",
+      "done": true,
+      "note": "landed turn 2",
       "void": false,
       "void_reason": "",
       "void_by": 0

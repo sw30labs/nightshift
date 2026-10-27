@@ -1,28 +1,14 @@
 {
   "frozen": true,
-  "created_at": "2026-10-24T04:07:14.490208+00:00",
+  "created_at": "2026-10-27T04:05:13.799822+00:00",
   "repo": "/Users/spider/REPOS/nightshift",
-  "branch": "night/2026-10-24",
-  "remaining_count": 3,
+  "branch": "night/2026-10-27",
+  "remaining_count": 2,
   "void_count": 0,
   "upgrades": [
     {
       "id": 1,
-      "title": "ADR + assumptions gate: document the project's decisions and assumptions",
-      "check_command": "python /Users/spider/REPOS/nightshift/src/nightshift/docs_gate.py --check --base bbe1b8faa2d34c3eefb57a97ee10e855f41bddfd",
-      "paths": [
-        "docs/adr/",
-        "docs/assumptions.md"
-      ],
-      "done": false,
-      "note": "Non-negotiable, runs first. Read the COMPLETE project in the snapshot (code, tests, config, README, docs, git log) before writing. Write retrospective ADRs in docs/adr/: one file per real, load-bearing decision visible in code, config, commits or existing docs. Never invent a decision. Any rationale not stated in code, docs or commits is labelled '(inferred)'. Each ADR cites its evidence (file paths, commit hashes). Match the format already used in docs/adr/. Keep docs/adr/README.md as an index table linking every ADR. Write docs/assumptions.md as an assumptions register: a table with ID, Assumption, Evidence, Stated/Inferred, Impact if wrong, Review owner. Gaps at freeze: no assumptions register under docs/ (e.g. docs/assumptions.md)",
-      "void": false,
-      "void_reason": "",
-      "void_by": 0
-    },
-    {
-      "id": 2,
-      "title": "Add a host-check regression test for empty and unbalanced-quote check commands",
+      "title": "Add malformed host-check regression tests",
       "check_command": "python -m pytest tests/test_host_check_malformed.py -q",
       "paths": [
         "tests/test_host_check_malformed.py",
@@ -35,8 +21,8 @@
       "void_by": 0
     },
     {
-      "id": 3,
-      "title": "Add a setup script smoke test for bash syntax and --help exit status",
+      "id": 2,
+      "title": "Add setup_and_run.sh smoke test",
       "check_command": "python -m pytest tests/test_setup_help.py -q",
       "paths": [
         "tests/test_setup_help.py",
@@ -50,5 +36,5 @@
     }
   ],
   "base_ref": "main",
-  "base_sha": "bbe1b8faa2d34c3eefb57a97ee10e855f41bddfd"
+  "base_sha": "1774ce9493d643ca2aea62ab915a945676a4557d"
 }

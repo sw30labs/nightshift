@@ -804,6 +804,21 @@ def run_bag(plan: BagPlan, settings: Settings) -> dict[str, Any]:
     }
 
 
+def _remaining_count_is_zero(value: Any) -> bool:
+    """A done target is accepted only when its remaining count is exactly zero.
+
+    Missing/None is treated as zero for old bags; any other non-int or
+    non-zero value is rejected instead of raising.
+    """
+    if value is None:
+        return True
+    if isinstance(value, bool):
+        return not value
+    if not isinstance(value, int):
+        return False
+    return value == 0
+
+
 def bag_exit_code(result: dict[str, Any]) -> int:
     if result.get("interrupted"):
         return 130
@@ -816,6 +831,10 @@ def bag_exit_code(result: dict[str, Any]) -> int:
         return 2
     if any(t.get("state") == "skipped" for t in targets):
         return 2
-    if any(int(t.get("remaining_count") or 0) for t in targets if t.get("state") == "done"):
+    if any(
+        not _remaining_count_is_zero(t.get("remaining_count"))
+        for t in targets
+        if t.get("state") == "done"
+    ):
         return 2
     return 0

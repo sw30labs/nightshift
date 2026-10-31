@@ -1,40 +1,40 @@
 {
   "frozen": true,
-  "created_at": "2026-10-27T04:05:13.799822+00:00",
+  "created_at": "2026-10-31T04:08:37.133972+00:00",
   "repo": "/Users/spider/REPOS/nightshift",
-  "branch": "night/2026-10-27",
-  "remaining_count": 0,
+  "branch": "night/2026-10-31",
+  "remaining_count": 2,
   "void_count": 0,
   "upgrades": [
     {
       "id": 1,
-      "title": "Add malformed host-check regression tests",
-      "check_command": "python -m pytest tests/test_host_check_malformed.py -q",
+      "title": "Make bag_exit_code robust to malformed remaining_count and cover accepted/rejected outcomes",
+      "check_command": "python -m pytest tests/test_bag_exit_code.py -q",
       "paths": [
-        "tests/test_host_check_malformed.py",
-        "src/nightshift/host.py"
+        "tests/test_bag_exit_code.py",
+        "src/nightshift/bag.py"
       ],
-      "done": true,
-      "note": "landed turn 1",
+      "done": false,
+      "note": "",
       "void": false,
       "void_reason": "",
       "void_by": 0
     },
     {
       "id": 2,
-      "title": "Add setup_and_run.sh smoke test",
-      "check_command": "python -m pytest tests/test_setup_help.py -q",
+      "title": "Harden shell-form pytest addopts injection for multiple pytest invocations",
+      "check_command": "python -m pytest tests/test_host_shell_addopts_multi.py tests/test_host_pytest_addopts.py -q",
       "paths": [
-        "tests/test_setup_help.py",
-        "setup_and_run.sh"
+        "tests/test_host_shell_addopts_multi.py",
+        "src/nightshift/host.py"
       ],
-      "done": true,
-      "note": "landed turn 2",
+      "done": false,
+      "note": "",
       "void": false,
       "void_reason": "",
       "void_by": 0
     }
   ],
   "base_ref": "main",
-  "base_sha": "1774ce9493d643ca2aea62ab915a945676a4557d"
+  "base_sha": "c2256bf05aa1bc5f312374e95eebaaf66ceb17c4"
 }

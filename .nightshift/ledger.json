@@ -82,6 +82,40 @@
       "last_exit": 0,
       "turns": 1,
       "note": "landed turn 2"
+    },
+    {
+      "title": "Make bag_exit_code robust to malformed remaining_count and cover accepted/rejected outcomes",
+      "check_command": "python -m pytest tests/test_bag_exit_code.py -q",
+      "paths": [
+        "tests/test_bag_exit_code.py",
+        "src/nightshift/bag.py"
+      ],
+      "check_hash": "b9eadb51a0bf",
+      "night": "night/2026-10-31",
+      "attempted": true,
+      "done": true,
+      "voided": false,
+      "void_reason": "",
+      "last_exit": 0,
+      "turns": 1,
+      "note": "landed turn 1"
+    },
+    {
+      "title": "Harden shell-form pytest addopts injection for multiple pytest invocations",
+      "check_command": "python -m pytest tests/test_host_shell_addopts_multi.py tests/test_host_pytest_addopts.py -q",
+      "paths": [
+        "tests/test_host_shell_addopts_multi.py",
+        "src/nightshift/host.py"
+      ],
+      "check_hash": "1c16828cee5e",
+      "night": "night/2026-10-31",
+      "attempted": true,
+      "done": true,
+      "voided": false,
+      "void_reason": "",
+      "last_exit": 0,
+      "turns": 1,
+      "note": "landed turn 2"
     }
   ]
 }

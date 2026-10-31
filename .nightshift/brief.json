@@ -3,7 +3,7 @@
   "created_at": "2026-10-31T04:08:37.133972+00:00",
   "repo": "/Users/spider/REPOS/nightshift",
   "branch": "night/2026-10-31",
-  "remaining_count": 2,
+  "remaining_count": 0,
   "void_count": 0,
   "upgrades": [
     {
@@ -14,8 +14,8 @@
         "tests/test_bag_exit_code.py",
         "src/nightshift/bag.py"
       ],
-      "done": false,
-      "note": "",
+      "done": true,
+      "note": "landed turn 1",
       "void": false,
       "void_reason": "",
       "void_by": 0
@@ -28,8 +28,8 @@
         "tests/test_host_shell_addopts_multi.py",
         "src/nightshift/host.py"
       ],
-      "done": false,
-      "note": "",
+      "done": true,
+      "note": "landed turn 2",
       "void": false,
       "void_reason": "",
       "void_by": 0

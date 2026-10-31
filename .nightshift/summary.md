@@ -1,29 +1,29 @@
-# Nightshift — 2026-10-27
+# Nightshift — 2026-10-31
 
 **2 of 2 landed · 0 void · 0 open — brief exhausted**
 
 **Repo:** `/Users/spider/REPOS/nightshift`
-**Branch:** `night/2026-10-27`
+**Branch:** `night/2026-10-31`
 **Halt:** remaining_zero
 **Remaining:** 0
-**Base:** main @ 1774ce9
-**Main:** main @ 1774ce9 (unchanged)
+**Base:** main @ c2256bf
+**Main:** main @ c2256bf (unchanged)
 **Host python:** /Users/spider/miniconda3/envs/nightshift/bin/python (conda env: dir name)
 
 ## Frozen brief
 
-- **#1 [done]** Add malformed host-check regression tests
-  - check: `python -m pytest tests/test_host_check_malformed.py -q`
-  - paths: tests/test_host_check_malformed.py, src/nightshift/host.py
+- **#1 [done]** Make bag_exit_code robust to malformed remaining_count and cover accepted/rejected outcomes
+  - check: `python -m pytest tests/test_bag_exit_code.py -q`
+  - paths: tests/test_bag_exit_code.py, src/nightshift/bag.py
   - note: landed turn 1
   - turns: 1
-  - commits: bd99f6b
-- **#2 [done]** Add setup_and_run.sh smoke test
-  - check: `python -m pytest tests/test_setup_help.py -q`
-  - paths: tests/test_setup_help.py, setup_and_run.sh
+  - commits: 850569d
+- **#2 [done]** Harden shell-form pytest addopts injection for multiple pytest invocations
+  - check: `python -m pytest tests/test_host_shell_addopts_multi.py tests/test_host_pytest_addopts.py -q`
+  - paths: tests/test_host_shell_addopts_multi.py, src/nightshift/host.py
   - note: landed turn 2
   - turns: 1
-  - commits: 8c1c19d
+  - commits: c50b30e
 
 ## Voided / skipped-as-duplicate
 
@@ -32,37 +32,37 @@
 ## What changed
 
 ```
-8c1c19d nightshift: turn 2 — Add tests/test_setup_help.py smoke test that runs setup_and_run.sh --hel
-bd99f6b nightshift: turn 1 — Add malformed host-check regression tests in tests/test_host_check_malfo
-98a08ed nightshift: freeze brief (2 upgrades)
+c50b30e nightshift: turn 2 — Edit only tests/test_host_shell_addopts_multi.py and src/nightshift/host
+850569d nightshift: turn 1 — Edit only src/nightshift/bag.py and tests/test_bag_exit_code.py: make ba
+ff56bc7 nightshift: freeze brief (2 upgrades)
 ```
 
 ```
-tests/test_host_check_malformed.py | 58 ++++++++++++++++++++++++++++++++++++++
- tests/test_setup_help.py           | 25 ++++++++++++++++
- 2 files changed, 83 insertions(+)
+src/nightshift/bag.py                  | 21 +++++++-
+ tests/test_bag_exit_code.py            | 97 ++++++++++++++++++++++++++++++++++
+ tests/test_host_shell_addopts_multi.py | 68 ++++++++++++++++++++++++
+ 3 files changed, 185 insertions(+), 1 deletion(-)
 ```
 
-`git diff 1774ce9...night/2026-10-27 -- . ':!.nightshift'`
+`git diff c2256bf...night/2026-10-31 -- . ':!.nightshift'`
 
 ## Land it
 
-- merge: `git checkout main && git merge --no-ff night/2026-10-27`
-- cherry-pick keepers: `git cherry-pick bd99f6b 8c1c19d`
-- drop: `git branch -D night/2026-10-27`
+- merge: `git checkout main && git merge --no-ff night/2026-10-31`
+- cherry-pick keepers: `git cherry-pick 850569d c50b30e`
+- drop: `git branch -D night/2026-10-31`
 - `.nightshift/ledger.json` rides along on merge
 
 ## What the critic refused
 
 - turn 1
-  - Upgrade 1 host check passed: 12 tests passed.
-  - Only tests/test_host_check_malformed.py was written, which is within current_job_paths.
-  - No out-of-scope project file writes detected.
+  - Upgrade 1 host check passed: 21 tests passed.
+  - Only files within current_job_paths were written: src/nightshift/bag.py and tests/test_bag_exit_code.py.
+  - Upgrade 2 host check failed (exit 4, missing tests/test_host_shell_addopts_multi.py), so it is not passed.
 - turn 2
-  - Host check for upgrade 2 passed: python -m pytest tests/test_setup_help.py -q exited 0 with 1 passed.
-  - Current turn added tests/test_setup_help.py, which is within current_job_paths.
-  - setup_and_run.sh was not modified, which is acceptable because the smoke test passed.
-  - .nightshift/brief.json and .nightshift/turns.jsonl changes are orchestration state from prior accepted work, not current writer project-body edits, so they are not reverted.
+  - Upgrade 2 host check passed: 10 tests passed.
+  - Only tests/test_host_shell_addopts_multi.py was added within current_job_paths; no out-of-scope writer files detected.
+  - .nightshift/brief.json and .nightshift/turns.jsonl are orchestrator bookkeeping, not writer output.
 
 ## Owner portfolio priority (scope for this night)
 {

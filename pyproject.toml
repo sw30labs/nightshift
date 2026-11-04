@@ -24,12 +24,12 @@ classifiers = [
     "Topic :: Software Development",
 ]
 dependencies = [
-    "langgraph>=0.2",
+    "langgraph==1.2.11",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8",
+    "pytest==9.1.1",
 ]
 
 [project.urls]
